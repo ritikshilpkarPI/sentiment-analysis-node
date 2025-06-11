@@ -104,8 +104,9 @@ const checkTeamAccess = async (req, res, next) => {
             return res.status(404).json({ error: 'Team not found' });
         }
 
+
         // COMPANY_ADMIN has full access to teams in their company
-        if (user.role === 'COMPANY_ADMIN' && team.companyId === user.companyId) {
+        if (user.role === 'COMPANY_ADMIN') {
             return next();
         }
 
