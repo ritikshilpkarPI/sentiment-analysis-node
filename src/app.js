@@ -1,0 +1,484 @@
+require('dotenv').config();
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const xml2js = require('xml2js');
+const { Team, Keyword, Tweet, Topic, Sentiment, Result, Company, News } = require('./models');
+const DbService = require('./services/dbService');
+
+const app = express();
+const PORT = process.env.PORT || 9000;
+
+// API Configuration
+const API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyAus6FjDg-O-Y-lTzZ8zag9pS8HJ_IfnE0";
+
+// File paths
+const LAST_TWEET_COUNT_FILE = path.join(__dirname, '..', 'last_tweet_count.txt');
+const TWEETS_INPUT_FILE = path.join(__dirname, '..', 'tweets_output.md');
+const RESULTS_OUTPUT_FILE = path.join(__dirname, '..', 'sentiment_results.md');
+const TOPIC_OUTPUT_FILE = path.join(__dirname, '..', 'topic.md');
+const RESULTS_OUTPUT_FILE_JSON = path.join(__dirname, '..', 'results.json');
+
+// Middleware
+app.use(cors());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Routes
+app.use('/api/results', require('./routes/resultsRoutes'));
+app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/companies', require('./routes/companyRoutes'));
+app.use('/api/teams', require('./routes/teamRoutes'));
+
+// Route to get all results from JSON file
+app.get('/results', (req, res) => {
+    try {
+        if (!fs.existsSync(RESULTS_OUTPUT_FILE_JSON)) {
+            return res.status(404).json({ error: 'No results found' });
+        }
+
+        const results = JSON.parse(fs.readFileSync(RESULTS_OUTPUT_FILE_JSON, 'utf-8'));
+        res.json(results);
+    } catch (error) {
+        console.error('[ERROR] Failed to read results:', error);
+        res.status(500).json({ error: 'Failed to read results' });
+    }
+});
+
+// Initialize database
+DbService.initialize()
+    .then(() => {
+        console.log('Database initialized successfully');
+    })
+    .catch(err => {
+        console.error('Failed to initialize database:', err);
+        process.exit(1);
+    });
+
+let isProcessingTweets = false;
+
+// Helper function to get last processed tweet count
+function getLastTweetCount() {
+    if (fs.existsSync(LAST_TWEET_COUNT_FILE)) {
+        try {
+            const data = fs.readFileSync(LAST_TWEET_COUNT_FILE, 'utf-8').trim();
+            if (/^\d+$/.test(data)) {
+                console.log(`[DEBUG] last_tweet_count read from disk: ${data}`);
+                return parseInt(data, 10);
+            }
+        } catch (err) {
+            console.log(`[DEBUG] Could not read last_tweet_count.txt: ${err}`);
+        }
+    }
+    console.log('[DEBUG] No valid last tweet count found. Starting from 0.');
+    return 0;
+}
+
+// Helper function to set last processed tweet count
+function setLastTweetCount(count) {
+    console.log(`[DEBUG] Setting last tweet count to: ${count}`);
+    fs.writeFileSync(LAST_TWEET_COUNT_FILE, String(count), 'utf-8');
+}
+
+// Helper function to read tweets from file
+function readTweetsFromFile(filePath) {
+    if (!fs.existsSync(filePath)) {
+        return [];
+    }
+    console.log(`[DEBUG] Reading tweets from: ${filePath}`);
+    const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
+    const tweets = [];
+    let currentLines = [];
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('## ')) {
+            continue;
+        }
+        if (trimmed.startsWith('- ')) {
+            if (currentLines.length > 0) {
+                tweets.push(currentLines.join(' ').trim());
+                currentLines = [];
+            }
+            currentLines.push(trimmed.slice(2).trim()); // remove '- '
+        } else {
+            currentLines.push(trimmed);
+        }
+    }
+    if (currentLines.length > 0) {
+        tweets.push(currentLines.join(' ').trim());
+    }
+    console.log(`[DEBUG] Found ${tweets.length} tweet lines in ${filePath}`);
+    return tweets;
+}
+
+// Helper function to read existing topics
+function readExistingTopics() {
+    try {
+        if (fs.existsSync(TOPIC_OUTPUT_FILE)) {
+            const content = fs.readFileSync(TOPIC_OUTPUT_FILE, 'utf-8');
+            return content.split('\n').filter(line => line.trim());
+        }
+    } catch (err) {
+        console.error('[ERROR] Failed to read topics:', err);
+    }
+    return [];
+}
+
+// Helper function to get sentiment prompt
+function getSentimentPrompt(text, existingTopics) {
+    const topicListStr = existingTopics.length > 0 
+        ? existingTopics.map(t => `- ${t}`).join('\n')
+        : 'None';
+
+    return `Analyze the following tweet: "${text}".\n` +
+        '1. Determine its sentiment. Respond with one of the following sentiments: Positive, Negative, Neutral, Sarcastic, Religious, Funny, Provocative.\n' +
+        '2. Identify the topic or subject of the tweet.\n' +
+        `   Here's a list of existing topics:\n${topicListStr}\n` +
+        '   If the tweet matches or is closely related to any topic from the list below, return that exact topic string from the list (no rewording). Only generate a new topic if there is absolutely no match.\n' +
+        '   When providing a topic, ensure it is **well-defined and descriptive**, making it clear what the tweet is about.\n' +
+        '   For example, instead of \'Politics,\' say \'Government Policies on Climate Change\' if relevant.\n' +
+        'Provide your response in the following format exactly:\n' +
+        '- **Sentiment**: <Sentiment>\n' +
+        '- **Topic**: <Well-defined and descriptive topic>';
+}
+
+// Helper function to map sentiment to valid database enum
+function mapSentimentToValidEnum(sentiment) {
+    const sentimentMap = {
+        'POSITIVE': 'POSITIVE',
+        'NEGATIVE': 'NEGATIVE',
+        'NEUTRAL': 'NEUTRAL',
+        'SARCASM': 'NEUTRAL',
+        'RELIGIOUS': 'NEUTRAL',
+        'FUNNY': 'POSITIVE',
+        'PROVOCATIVE': 'NEGATIVE'
+    };
+    const mappedSentiment = sentimentMap[sentiment.toUpperCase()] || 'NEUTRAL';
+    console.log(`[DEBUG] Mapping sentiment from ${sentiment} to ${mappedSentiment}`);
+    return mappedSentiment;
+}
+
+// Helper function to call Gemini API
+async function callGeminiApi(tweet) {
+    try {
+        const prompt = getSentimentPrompt(tweet, readExistingTopics());
+        const response = await axios.post(API_ENDPOINT, {
+            contents: [{
+                parts: [{
+                    text: prompt,
+                }],
+            }],
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        });
+
+        const data = response.data;
+        let rawSentiment = 'NEUTRAL';
+        let topic = 'Unknown';
+
+        if (data.candidates && data.candidates[0] && data.candidates[0].content && 
+            data.candidates[0].content.parts && data.candidates[0].content.parts[0] && 
+            data.candidates[0].content.parts[0].text) {
+            
+            const rawResponse = data.candidates[0].content.parts[0].text.trim();
+            console.log('[Gemini] Raw response:', rawResponse);
+
+            // Extract sentiment and topic using regex
+            const sentimentMatch = rawResponse.match(/\*\*Sentiment\*\*:\s*(.*)/);
+            const topicMatch = rawResponse.match(/\*\*Topic\*\*:\s*(.*)/);
+
+            rawSentiment = sentimentMatch ? sentimentMatch[1].trim() : 'NEUTRAL';
+            topic = topicMatch ? topicMatch[1].trim() : 'Unknown';
+
+            // Handle new topics
+            if (topic !== 'Unknown') {
+                const existingTopics = readExistingTopics();
+                if (!existingTopics.includes(topic)) {
+                    fs.appendFileSync(TOPIC_OUTPUT_FILE, topic + '\n', 'utf-8');
+                    console.log(`[Gemini] New topic appended: ${topic}`);
+                }
+            }
+        }
+
+        // Map sentiment to valid database enum
+        const sentiment = mapSentimentToValidEnum(rawSentiment);
+
+        // Fetch news for the topic
+        let news = [];
+        if (topic !== 'Unknown') {
+            console.log(`\nFetching news for topic: ${topic}`);
+            news = await fetchGoogleNews(topic);
+            for (const { title, link } of news) {
+                console.log(`News: ${title}`);
+                console.log(`Link: ${link}\n`);
+            }
+        }
+
+        return { sentiment, topic, news };
+    } catch (err) {
+        console.error('Gemini API error:', err);
+        return { sentiment: 'NEUTRAL', topic: 'Unknown', news: [] };
+    }
+}
+
+// Helper function to fetch Google News
+async function fetchGoogleNews(topic, location = 'IN') {
+    try {
+        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(topic)}&hl=en-${location}&gl=${location}&ceid=${location}:en`;
+        const response = await axios.get(rssUrl);
+        
+        if (response.status === 200) {
+            const parser = new xml2js.Parser();
+            const result = await parser.parseStringPromise(response.data);
+            
+            if (result.rss && result.rss.channel && result.rss.channel[0].item) {
+                return result.rss.channel[0].item.slice(0, 5).map(item => ({
+                    title: item.title[0],
+                    link: item.link[0]
+                }));
+            }
+        }
+        return [];
+    } catch (error) {
+        console.error('[ERROR] Failed to fetch Google News:', error.message);
+        return [];
+    }
+}
+
+// Helper: Append results to file
+function appendResultsToFile(results) {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    let output = `\n## Results at ${now}\n\n`;
+    for (const [tweet, sentiment, topic, news] of results) {
+        const singleLineTweet = tweet.replace(/\n/g, ' ');
+        output += `- **Tweet**: ${singleLineTweet} - **Sentiment**: ${sentiment} - **Topic**: ${topic}\n`;
+        if (news && news.length > 0) {
+            output += '  **Related News**:\n';
+            for (const { title, link } of news) {
+                output += `  - [${title}](${link})\n`;
+            }
+        }
+        output += '\n';
+    }
+    fs.appendFileSync(RESULTS_OUTPUT_FILE, output, 'utf-8');
+    console.log(`[DEBUG] Appended ${results.length} results to ${RESULTS_OUTPUT_FILE}`);
+}
+
+// Helper: Append results to JSON file
+function appendResultsToJson(results) {
+    try {
+        let data = {};
+        if (fs.existsSync(RESULTS_OUTPUT_FILE_JSON) && fs.statSync(RESULTS_OUTPUT_FILE_JSON).size > 0) {
+            try {
+                data = JSON.parse(fs.readFileSync(RESULTS_OUTPUT_FILE_JSON, 'utf-8'));
+            } catch (err) {
+                console.error('[ERROR] Failed to parse existing JSON:', err);
+            }
+        }
+        for (const [tweet, sentiment, topic, news] of results) {
+            if (!data[topic]) {
+                data[topic] = [];
+            }
+            data[topic].push({
+                tweet,
+                sentiment,
+                news: news.map(({ title, link }) => ({ title, link }))
+            });
+        }
+        fs.writeFileSync(RESULTS_OUTPUT_FILE_JSON, JSON.stringify(data, null, 4), 'utf-8');
+        console.log(`[DEBUG] Updated ${RESULTS_OUTPUT_FILE_JSON} with ${results.length} new results`);
+    } catch (err) {
+        console.error('[ERROR] Failed to write to JSON file:', err);
+    }
+}
+
+// Process tweets and store results (both file and DB)
+async function processTweets() {
+    if (isProcessingTweets) {
+        console.log('Tweet processing already in progress');
+        return;
+    }
+    try {
+        isProcessingTweets = true;
+        console.log('Starting tweet processing...');
+        
+        if (!fs.existsSync(TWEETS_INPUT_FILE)) {
+            console.log('No tweets file found at:', TWEETS_INPUT_FILE);
+            return;
+        }
+
+        // Get default team and company
+        const defaultTeam = await Team.findOne();
+        const defaultCompany = await Company.findOne();
+
+        if (!defaultTeam || !defaultCompany) {
+            console.error('No default team or company found in the database');
+            return;
+        }
+
+        // Get last processed count and read all tweets
+        let lastCount = getLastTweetCount();
+        const allTweets = readTweetsFromFile(TWEETS_INPUT_FILE);
+        const total = allTweets.length;
+
+        if (total > lastCount) {
+            const newTweets = allTweets.slice(lastCount);
+            console.log(`[DEBUG] Found ${newTweets.length} new tweets`);
+            let results = [];
+
+            for (const tweet of newTweets) {
+                const { sentiment, topic, news } = await callGeminiApi(tweet);
+                if (!sentiment) {
+                    console.log(`[DEBUG] Error processing tweet: ${tweet}`);
+                    continue;
+                }
+
+                // Ensure sentiment is in valid format before database operations
+                const validSentiment = mapSentimentToValidEnum(sentiment);
+                results.push([tweet, validSentiment, topic, news]);
+
+                try {
+                    // Save to database
+                    // Create or find topic
+                    const [topicRecord] = await Topic.findOrCreate({
+                        where: { name: topic },
+                        defaults: { description: `Topic: ${topic}` }
+                    });
+
+                    // Create or find sentiment with valid enum value
+                    const [sentimentRecord] = await Sentiment.findOrCreate({
+                        where: { label: validSentiment },
+                        defaults: { 
+                            score: 0, 
+                            confidence: 0.5,
+                            label: validSentiment
+                        }
+                    });
+
+                    // Create tweet
+                    const tweetRecord = await Tweet.create({
+                        tweetId: `tweet_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        content: tweet,
+                        author: 'Unknown',
+                        createdAt: new Date(),
+                        topicId: topicRecord.id,
+                        sentimentId: sentimentRecord.id
+                    });
+
+                    // Create result with proper UUIDs
+                    const resultRecord = await Result.create({
+                        tweetId: tweetRecord.id,
+                        teamId: defaultTeam.id,
+                        companyId: defaultCompany.id
+                    });
+
+                    // Create news records and associate them with the result
+                    if (news && news.length > 0) {
+                        for (const newsItem of news) {
+                            const newsRecord = await News.create({
+                                title: newsItem.title,
+                                url: newsItem.link,
+                                topicId: topicRecord.id
+                            });
+                            await resultRecord.addNews(newsRecord);
+                        }
+                    }
+                } catch (dbError) {
+                    console.error('[ERROR] Database operation failed:', dbError);
+                    continue;
+                }
+            }
+
+            if (results.length > 0) {
+                console.log('\nResults Table:');
+                console.log('| Tweet                                              | Sentiment | Topic |');
+                console.log('|----------------------------------------------------|-----------|-------|');
+                for (const [tweet, sentiment, topic, news] of results) {
+                    const shortTweet = tweet.length > 50 ? tweet.slice(0, 47) + '...' : tweet;
+                    console.log(`| ${shortTweet.padEnd(50)} | ${sentiment.padEnd(9)} | ${topic.padEnd(6)} |`);
+                    if (news && news.length > 0) {
+                        console.log('\nRelated News:');
+                        for (const { title, link } of news) {
+                            console.log(`- ${title}`);
+                            console.log(`  Link: ${link}\n`);
+                        }
+                    }
+                }
+
+                appendResultsToFile(results);
+                appendResultsToJson(results);
+            }
+
+            // Update last processed count
+            lastCount = total;
+            setLastTweetCount(lastCount);
+        } else {
+            console.log(`[DEBUG] No new tweets. ${total} total, ${lastCount} already processed.`);
+        }
+
+        console.log('Tweets processed and stored successfully (both file and DB)');
+    } catch (error) {
+        console.error('Error processing tweets:', error);
+    } finally {
+        isProcessingTweets = false;
+    }
+}
+
+// Continuous analysis loop
+async function continuousAnalysis() {
+    console.log('[INFO] Starting continuous analysis loop...');
+    
+    while (true) {
+        try {
+            await processTweets();
+            
+            // Random sleep between 10-60 seconds
+            const sleepTime = Math.floor(Math.random() * (60 - 10 + 1)) + 10;
+            console.log(`[DEBUG] Waiting ${sleepTime} seconds before next check...\n`);
+            await new Promise((resolve) => setTimeout(resolve, sleepTime * 1000));
+        } catch (error) {
+            console.error('[ERROR] Error in continuous analysis loop:', error);
+            // Wait 30 seconds before retrying on error
+            await new Promise((resolve) => setTimeout(resolve, 30000));
+        }
+    }
+}
+
+// Start server
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+    console.log('PROCESS_TWEETS environment variable:', process.env.PROCESS_TWEETS);
+    
+    if (process.env.PROCESS_TWEETS === 'true') {
+        // Start continuous analysis loop
+        continuousAnalysis().catch((err) => {
+            console.error('[ERROR] Error in continuousAnalysis:', err);
+            process.exit(1);
+        });
+    }
+});
+
+// Handle graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('SIGTERM received. Closing database connection...');
+    await DbService.close();
+    process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    console.log('SIGINT received. Closing database connection...');
+    await DbService.close();
+    process.exit(0);
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ error: 'Something went wrong!' });
+}); 
