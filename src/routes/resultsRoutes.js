@@ -807,7 +807,14 @@ async function fetchTweetsFromXApi(keyword, handle = null) {
         if (handle) {
             const cleanHandle = handle.replace('@', '');
             query = `from:${cleanHandle} ${keyword}`;
+        } else {
+            // For general search, make it more flexible
+            // Remove quotes if present and add OR logic for better results
+            const cleanKeyword = keyword.replace(/['"]/g, '');
+            query = `(${cleanKeyword} OR "${cleanKeyword}") -is:retweet lang:en`;
         }
+        
+        console.log('🔍 [X_API] Query:', query);
         
         const response = await axios.get('https://api.twitter.com/2/tweets/search/recent', {
             headers: {
@@ -823,6 +830,9 @@ async function fetchTweetsFromXApi(keyword, handle = null) {
                 'media.fields': 'type,url,preview_image_url,duration_ms,height,width,alt_text'
             }
         });
+        
+        console.log('📊 [X_API] Response status:', response.status);
+        console.log('📊 [X_API] Response data:', JSON.stringify(response.data, null, 2));
 
         if (response.data && response.data.data) {
             const tweets = response.data.data;
