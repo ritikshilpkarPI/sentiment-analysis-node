@@ -1,0 +1,8 @@
+node_modules/
+python-scraper/output/
+*.log
+.env
+.DS_Store
+.git
+*.md
+test_*.js
