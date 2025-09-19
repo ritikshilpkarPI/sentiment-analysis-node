@@ -171,172 +171,58 @@ def setup_driver(headless=True):
         return None
 
 
-def twitter_login(driver, username=None, password=None, timeout_seconds=60):
-    """
-    Automate Twitter login in headless mode using supplied credentials.
-    Returns True on successful login, False otherwise.
-    Note: cannot bypass 2FA/CAPTCHA or interactive challenges.
-    """
-    username = username or os.environ.get("TWITTER_USERNAME")
-    password = password or os.environ.get("TWITTER_PASSWORD")
-
-    if not username or not password:
-        print("❌ Missing TWITTER_USERNAME or TWITTER_PASSWORD (set as environment variables).")
-        return False
-
+def twitter_login(driver):
+    """Login to Twitter and wait for manual completion"""
     try:
-        print("🌐 Opening Twitter login flow...")
+        print("🌐 Opening Twitter login page...")
         driver.get("https://twitter.com/i/flow/login")
-        wait = WebDriverWait(driver, 20)
-        start_time = time.time()
-
-        step = 0  # 0 = enter username, 1 = enter password, 2 = submitted
-        while time.time() - start_time < timeout_seconds:
-            current_url = driver.current_url
-
-            # Quick checks for already-logged-in state
+        time.sleep(3)
+        
+        print("🔐 Please login to Twitter manually in the browser window...")
+        print("⏳ Waiting for you to complete login...")
+        print("   (The server will continue once you're logged in)")
+        
+        # Wait indefinitely until user manually logs in
+        login_attempts = 0
+        max_attempts = 300  # 10 minutes max
+        
+        while login_attempts < max_attempts:
             try:
-                if ("home" in current_url and "login" not in current_url) or driver.find_elements(By.CSS_SELECTOR, '[data-testid="SideNav_AccountSwitcher_Button"]'):
-                    print("✅ Already logged in (home/account UI detected).")
+                current_url = driver.current_url
+                
+                # Check if we're on home page or logged in
+                if ("home" in current_url or 
+                    "twitter.com" in current_url and "login" not in current_url or
+                    driver.find_elements(By.CSS_SELECTOR, '[data-testid="SideNav_AccountSwitcher_Button"]')):
+                    print("✅ Login detected! Server ready for scraping...")
                     return True
-            except Exception:
-                # ignore transient DOM errors
-                pass
-
-            # Step 0: try to fill username/email/phone
-            if step == 0:
-                username_selectors = [
-                    'input[name="text"]',
-                    'input[type="text"][autocomplete="username"]',
-                    'input[aria-label="Phone, email, or username"]',
-                    'input[placeholder*="phone"]',
-                    'input[placeholder*="email"]',
-                    'input[placeholder*="username"]',
-                ]
-                filled = False
-                for sel in username_selectors:
-                    try:
-                        elems = driver.find_elements(By.CSS_SELECTOR, sel)
-                        if elems:
-                            for e in elems:
-                                if e.is_displayed() and e.is_enabled():
-                                    e.clear()
-                                    e.send_keys(username)
-                                    filled = True
-                                    break
-                        if filled:
-                            break
-                    except Exception:
-                        continue
-
-                if filled:
-                    # Attempt to click next/login button(s)
-                    try:
-                        candidate_buttons = driver.find_elements(By.CSS_SELECTOR, 'div[role="button"], button')
-                        for b in candidate_buttons:
-                            try:
-                                if not b.is_displayed() or not b.is_enabled():
-                                    continue
-                                txt = (b.text or "").strip().lower()
-                                if txt and any(k in txt for k in ("next", "continue", "log in", "login", "confirm", "next →")):
-                                    try:
-                                        b.click()
-                                    except Exception:
-                                        driver.execute_script("arguments[0].click();", b)
-                                    break
-                            except Exception:
-                                continue
-                    except Exception:
-                        pass
-                    step = 1
-                    time.sleep(1.5)
-                    continue
-
-            # Step 1: try to fill password
-            if step == 1:
-                pwd_selectors = [
-                    'input[name="password"]',
-                    'input[type="password"]',
-                    'input[autocomplete="current-password"]',
-                    'input[aria-label="Password"]'
-                ]
-                found_pwd = False
-                for sel in pwd_selectors:
-                    try:
-                        elems = driver.find_elements(By.CSS_SELECTOR, sel)
-                        if elems:
-                            for e in elems:
-                                if e.is_displayed() and e.is_enabled():
-                                    e.clear()
-                                    e.send_keys(password)
-                                    found_pwd = True
-                                    break
-                        if found_pwd:
-                            break
-                    except Exception:
-                        continue
-
-                if found_pwd:
-                    # click submit/login button
-                    try:
-                        candidate_buttons = driver.find_elements(By.CSS_SELECTOR, 'div[role="button"], button')
-                        for b in candidate_buttons:
-                            try:
-                                if not b.is_displayed() or not b.is_enabled():
-                                    continue
-                                txt = (b.text or "").strip().lower()
-                                if txt and any(k in txt for k in ("log in", "login", "submit", "continue", "log in →")):
-                                    try:
-                                        b.click()
-                                    except Exception:
-                                        driver.execute_script("arguments[0].click();", b)
-                                    break
-                            except Exception:
-                                continue
-                    except Exception:
-                        pass
-                    step = 2
-                    time.sleep(2)
-                    # allow next loop to detect login or challenge
-                    continue
-
-            # After submit: detect common blockers or success
-            try:
-                # 2FA/challenge detection (heuristic)
-                if driver.find_elements(By.CSS_SELECTOR, 'input[name="challenge_response"]') or "challenge" in driver.current_url:
-                    print("⚠️ Login requires additional verification (2FA/challenge). Cannot bypass automatically.")
-                    return False
-
-                # CAPTCHA detection heuristic
-                page_src_lower = ""
-                try:
-                    page_src_lower = driver.page_source.lower()
-                except Exception:
-                    page_src_lower = ""
-
-                if "captcha" in page_src_lower or driver.find_elements(By.CSS_SELECTOR, 'iframe[src*="captcha"]'):
-                    print("⚠️ CAPTCHA detected on login flow. Manual intervention required.")
-                    return False
-
-                # final check for account UI
-                if driver.find_elements(By.CSS_SELECTOR, '[data-testid="SideNav_AccountSwitcher_Button"]'):
-                    print("✅ Login detected via account UI.")
-                    return True
-
-                if "home" in driver.current_url and "login" not in driver.current_url:
-                    print("✅ Login redirect detected.")
-                    return True
-            except Exception:
-                # ignore and continue trying until timeout
-                pass
-
-            time.sleep(1)
-
-        print("⏰ Login timeout reached (automated attempts).")
-        return False
-
+                    
+                # Check for any error messages
+                error_elements = driver.find_elements(By.CSS_SELECTOR, '[data-testid="error"]')
+                if error_elements:
+                    print("❌ Login error detected. Please try again.")
+                    print("   Refreshing page...")
+                    driver.refresh()
+                    time.sleep(3)
+                
+                # Wait a bit before checking again
+                time.sleep(2)
+                login_attempts += 1
+                
+                if login_attempts % 30 == 0:  # Every minute
+                    print(f"⏳ Still waiting for login... ({login_attempts/30} minutes)")
+                
+            except Exception as e:
+                print(f"⚠️  Checking login status... ({e})")
+                time.sleep(2)
+                login_attempts += 1
+                continue
+        
+        print("⏰ Login timeout reached. Continuing anyway...")
+        return True
+                
     except Exception as e:
-        print(f"❌ Error during automated login: {e}")
+        print(f"❌ Error during login setup: {e}")
         return False
 
 
