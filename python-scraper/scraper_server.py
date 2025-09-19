@@ -125,6 +125,21 @@ def setup_driver(headless=True):
         print("🔧 Using WebDriver Manager to install/locate chromedriver...")
         # Add chromedriver log path for debugging
         driver_path = ChromeDriverManager().install()
+        
+        # Fix: WebDriver Manager sometimes returns wrong file, find the actual chromedriver
+        if "THIRD_PARTY_NOTICES" in driver_path:
+            actual_driver_path = driver_path.replace("THIRD_PARTY_NOTICES.chromedriver", "chromedriver")
+            if os.path.exists(actual_driver_path):
+                driver_path = actual_driver_path
+                print(f"🔧 Fixed driver path to: {driver_path}")
+        
+        # Fix permissions for chromedriver
+        try:
+            os.chmod(driver_path, 0o755)
+            print(f"🔧 Fixed chromedriver permissions")
+        except Exception as e:
+            print(f"⚠️ Could not fix permissions: {e}")
+        
         service = Service(driver_path, log_path="/tmp/chromedriver.log")
         driver = webdriver.Chrome(service=service, options=chrome_options)
 
@@ -154,14 +169,18 @@ def setup_driver(headless=True):
         return None
 
 
-def twitter_login(driver, timeout_seconds=180):
+def twitter_login(driver, timeout_seconds=60):
     """
-    Login to Twitter.
-    - If cookies restored a logged-in session, this returns True quickly.
-    - Else requires manual login (GUI) or will timeout/abort on repeated driver errors.
+    Automate Twitter login using credentials from environment variables.
+    Returns True on successful login, False otherwise.
     """
     if not driver:
         print("❌ No browser available for login")
+        return False
+
+    # Check if we have credentials
+    if not TWITTER_USERNAME or not TWITTER_PASSWORD:
+        print("❌ Missing TWITTER_USERNAME or TWITTER_PASSWORD environment variables")
         return False
 
     # If cookies indicate logged-in state already, check quickly
@@ -177,70 +196,138 @@ def twitter_login(driver, timeout_seconds=180):
     print("🌐 Opening Twitter login page...")
     try:
         driver.get("https://twitter.com/i/flow/login")
+        time.sleep(3)
     except Exception as e:
         print("⚠️ Could not open login page:", e)
         return False
 
-    print("🔐 Please login to Twitter manually in the browser window (if visible).")
-    print("⏳ Waiting for you to complete login...")
+    print("🔐 Attempting automatic login...")
+    start_time = time.time()
+    step = 0  # 0 = enter username, 1 = enter password, 2 = submitted
 
-    start = time.time()
-    login_attempts = 0
-    max_attempts = max(30, timeout_seconds // 2)
-    consec_errors = 0
-    max_consec_errors = 5
-
-    while time.time() - start < timeout_seconds and login_attempts < max_attempts:
+    while time.time() - start_time < timeout_seconds:
         try:
-            # If chromedriver dead, driver.current_url will raise/timeout
             current_url = driver.current_url
-            consec_errors = 0  # reset on success
 
-            # Check success indicators
-            try:
-                if ("home" in current_url and "login" not in current_url) or driver.find_elements(By.CSS_SELECTOR, '[data-testid="SideNav_AccountSwitcher_Button"]'):
-                    print("✅ Login detected! Server ready for scraping...")
+            # Quick check for already logged in
+            if ("home" in current_url and "login" not in current_url) or driver.find_elements(By.CSS_SELECTOR, '[data-testid="SideNav_AccountSwitcher_Button"]'):
+                print("✅ Login successful!")
+                save_cookies(driver)
+                return True
+
+            # Step 0: Fill username
+            if step == 0:
+                username_selectors = [
+                    'input[name="text"]',
+                    'input[type="text"][autocomplete="username"]',
+                    'input[aria-label="Phone, email, or username"]',
+                    'input[placeholder*="phone"]',
+                    'input[placeholder*="email"]',
+                    'input[placeholder*="username"]',
+                ]
+                
+                filled = False
+                for sel in username_selectors:
                     try:
-                        save_cookies(driver)
+                        elems = driver.find_elements(By.CSS_SELECTOR, sel)
+                        if elems:
+                            for e in elems:
+                                if e.is_displayed() and e.is_enabled():
+                                    e.clear()
+                                    e.send_keys(TWITTER_USERNAME)
+                                    filled = True
+                                    break
+                        if filled:
+                            break
+                    except Exception:
+                        continue
+
+                if filled:
+                    # Click next button
+                    try:
+                        buttons = driver.find_elements(By.CSS_SELECTOR, 'div[role="button"], button')
+                        for b in buttons:
+                            try:
+                                if not b.is_displayed() or not b.is_enabled():
+                                    continue
+                                txt = (b.text or "").strip().lower()
+                                if txt and any(k in txt for k in ("next", "continue", "log in", "login", "confirm")):
+                                    b.click()
+                                    break
+                            except Exception:
+                                continue
                     except Exception:
                         pass
-                    return True
-            except Exception:
-                pass
-
-            # detect visible login error and refresh
-            try:
-                errs = driver.find_elements(By.CSS_SELECTOR, '[data-testid="error"]')
-                if errs:
-                    print("❌ Login error detected on page. Refreshing...")
-                    driver.refresh()
+                    step = 1
                     time.sleep(2)
+                    continue
+
+            # Step 1: Fill password
+            if step == 1:
+                pwd_selectors = [
+                    'input[name="password"]',
+                    'input[type="password"]',
+                    'input[autocomplete="current-password"]',
+                    'input[aria-label="Password"]'
+                ]
+                
+                found_pwd = False
+                for sel in pwd_selectors:
+                    try:
+                        elems = driver.find_elements(By.CSS_SELECTOR, sel)
+                        if elems:
+                            for e in elems:
+                                if e.is_displayed() and e.is_enabled():
+                                    e.clear()
+                                    e.send_keys(TWITTER_PASSWORD)
+                                    found_pwd = True
+                                    break
+                        if found_pwd:
+                            break
+                    except Exception:
+                        continue
+
+                if found_pwd:
+                    # Click login button
+                    try:
+                        buttons = driver.find_elements(By.CSS_SELECTOR, 'div[role="button"], button')
+                        for b in buttons:
+                            try:
+                                if not b.is_displayed() or not b.is_enabled():
+                                    continue
+                                txt = (b.text or "").strip().lower()
+                                if txt and any(k in txt for k in ("log in", "login", "submit", "continue")):
+                                    b.click()
+                                    break
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
+                    step = 2
+                    time.sleep(3)
+                    continue
+
+            # Check for 2FA or CAPTCHA
+            try:
+                if driver.find_elements(By.CSS_SELECTOR, 'input[name="challenge_response"]') or "challenge" in driver.current_url:
+                    print("⚠️ 2FA/challenge detected. Cannot bypass automatically.")
+                    return False
+
+                page_src = driver.page_source.lower()
+                if "captcha" in page_src or driver.find_elements(By.CSS_SELECTOR, 'iframe[src*="captcha"]'):
+                    print("⚠️ CAPTCHA detected. Cannot bypass automatically.")
+                    return False
             except Exception:
                 pass
 
-            login_attempts += 1
-            if login_attempts % 10 == 0:
-                print(f"⏳ Still waiting for login... ({login_attempts} checks)")
-            time.sleep(2)
+            time.sleep(1)
 
         except Exception as e:
-            consec_errors += 1
-            login_attempts += 1
-            print(f"⚠️  Checking login status... ({e})")
-            if consec_errors >= max_consec_errors:
-                print(f"❌ Repeated connection errors ({consec_errors}). Aborting login.")
-                return False
-            time.sleep(2)
+            print(f"⚠️ Login attempt error: {e}")
+            time.sleep(1)
             continue
 
     print("⏰ Login timeout reached.")
-    # attempt a final cookie save if logged in
-    try:
-        if "home" in driver.current_url and "login" not in driver.current_url:
-            save_cookies(driver)
-            return True
-    except Exception:
-        pass
     return False
 
 
