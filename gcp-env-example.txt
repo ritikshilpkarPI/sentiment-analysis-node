@@ -1,0 +1,41 @@
+# GCP Deployment Environment Variables
+# Copy this to .env and fill in your values
+
+# Database Configuration (Cloud SQL or local PostgreSQL)
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=your_password_here
+DB_NAME=tweet_sentiment_db
+
+# For Cloud SQL, use connection name:
+# DB_HOST=/cloudsql/PROJECT_ID:REGION:INSTANCE_NAME
+# DB_PORT=5432
+# DB_USER=postgres
+# DB_PASSWORD=your_password_here
+# DB_NAME=tweet_sentiment_db
+
+# API Keys
+X_API_BEARER_TOKEN=your_x_api_bearer_token_here
+GROK_API_KEY=your_grok_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Application Configuration
+NODE_ENV=production
+PORT=9000
+
+# Enable scraper in GCP (since we have browser support)
+USE_X_API=true
+ENABLE_SCRAPER_FALLBACK=true
+GCP_DEPLOYMENT=true
+
+# Process tweets automatically
+PROCESS_TWEETS=true
+
+# GCP Specific
+GOOGLE_CLOUD_PROJECT=your-project-id
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+
+# Optional: Redis for caching (if using Memorystore)
+# REDIS_HOST=10.x.x.x
+# REDIS_PORT=6379

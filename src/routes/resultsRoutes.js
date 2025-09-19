@@ -506,8 +506,9 @@ router.post('/runAnalysis', async (req, res) => {
             console.log('Handles:', handles);
         }
 
-        // AWS: X API with scraper fallback, Railway: X API only
+        // AWS/GCP: X API with scraper fallback, Railway: X API only
         const isAWS = process.env.AWS_DEPLOYMENT === 'true';
+        const isGCP = process.env.GCP_DEPLOYMENT === 'true';
         const isProduction = process.env.NODE_ENV === 'production';
         const shouldTryXApi = isProduction || process.env.USE_X_API === 'true';
         
@@ -524,6 +525,19 @@ router.post('/runAnalysis', async (req, res) => {
                     status: 'running',
                     method: 'x_api_aws_fallback',
                     note: 'AWS mode: Will automatically fallback to scraper if X API fails. Check server logs for progress.'
+                });
+            } else if (isGCP) {
+                // GCP: X API with scraper fallback (browser available)
+                startXApiAnalysisWithFallback(keywords, handles || []);
+                
+                res.json({
+                    success: true,
+                    message: 'Analysis started with X API (GCP mode with scraper fallback)',
+                    keywords: keywords,
+                    handles: handles || [],
+                    status: 'running',
+                    method: 'x_api_gcp_fallback',
+                    note: 'GCP mode: Will automatically fallback to scraper if X API fails. Check server logs for progress.'
                 });
             } else if (isProduction) {
                 // Production: X API with scraper fallback for rate limits
@@ -739,11 +753,12 @@ async function fallbackToScraper(keywords, handles) {
     
     // Check if we're in a production environment that supports scraper
     const isAWS = process.env.AWS_DEPLOYMENT === 'true';
+    const isGCP = process.env.GCP_DEPLOYMENT === 'true';
     const isProduction = process.env.NODE_ENV === 'production';
     
-    if (isProduction && !isAWS) {
-        console.log('🚫 [FALLBACK] Production mode without AWS: Scraper not available');
-        console.log('💡 [FALLBACK] Consider upgrading X API plan or deploying to AWS');
+    if (isProduction && !isAWS && !isGCP) {
+        console.log('🚫 [FALLBACK] Production mode without AWS/GCP: Scraper not available');
+        console.log('💡 [FALLBACK] Consider upgrading X API plan or deploying to AWS/GCP');
         return false;
     }
     
