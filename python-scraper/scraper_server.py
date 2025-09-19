@@ -84,20 +84,18 @@ def setup_driver(headless=True):
         import shutil
         system_chromedriver = shutil.which('chromedriver')
         
-        if system_chromedriver:
-            print(f"🔧 Using system ChromeDriver: {system_chromedriver}")
-            service = Service(system_chromedriver)
-        else:
-            print("🔧 Using WebDriver Manager...")
-            # Clear any corrupted cache
-            import os
-            wdm_cache = os.path.expanduser("~/.wdm")
-            if os.path.exists(wdm_cache):
-                print("🧹 Clearing WebDriver Manager cache...")
-                import shutil
-                shutil.rmtree(wdm_cache, ignore_errors=True)
-            
-            service = Service(ChromeDriverManager().install())
+        # Always use WebDriver Manager for correct version
+        print("🔧 Using WebDriver Manager for correct ChromeDriver version...")
+        
+        # Clear any corrupted cache first
+        import os
+        wdm_cache = os.path.expanduser("~/.wdm")
+        if os.path.exists(wdm_cache):
+            print("🧹 Clearing WebDriver Manager cache...")
+            import shutil
+            shutil.rmtree(wdm_cache, ignore_errors=True)
+        
+        service = Service(ChromeDriverManager().install())
         
         driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
