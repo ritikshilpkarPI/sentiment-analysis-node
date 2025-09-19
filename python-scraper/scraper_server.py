@@ -98,26 +98,34 @@ def setup_driver(headless=True):
         import zipfile
         import os
         
-        # Try different download URLs
-        download_urls = [
+        # Try different ChromeDriver versions (Chrome 140+ uses newer ChromeDriver)
+        # Chrome 140+ corresponds to ChromeDriver 131+
+        version_attempts = [
             f"https://chromedriver.storage.googleapis.com/LATEST_RELEASE_{version_match}",
             f"https://chromedriver.storage.googleapis.com/LATEST_RELEASE_{version_match}.0",
-            f"https://chromedriver.storage.googleapis.com/LATEST_RELEASE_{version_match}.0.0"
+            f"https://chromedriver.storage.googleapis.com/LATEST_RELEASE_{version_match}.0.0",
+            "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_131",
+            "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_132",
+            "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_133",
+            "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_134",
+            "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_135"
         ]
         
         driver_version = None
-        for url in download_urls:
+        for url in version_attempts:
             try:
+                print(f"🔍 Trying: {url}")
                 response = requests.get(url, timeout=10)
                 if response.status_code == 200:
                     driver_version = response.text.strip()
                     print(f"✅ Found ChromeDriver version: {driver_version}")
                     break
-            except:
+            except Exception as e:
+                print(f"❌ Failed: {e}")
                 continue
         
         if not driver_version:
-            print("❌ Could not find ChromeDriver version")
+            print("❌ Could not find any compatible ChromeDriver version")
             return None
         
         # Download ChromeDriver
