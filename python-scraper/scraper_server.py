@@ -26,10 +26,10 @@ server_socket = None
 is_running = False
 
 def setup_driver(headless=True):
-    """Setup Chrome driver with options for AWS deployment"""
+    """Setup Chrome driver with options for GCP deployment"""
     chrome_options = Options()
     
-    # AWS/Linux specific options for stability
+    # GCP/Linux specific options for stability
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
@@ -43,6 +43,9 @@ def setup_driver(headless=True):
     chrome_options.add_argument("--remote-debugging-port=9222")
     chrome_options.add_argument("--disable-setuid-sandbox")
     chrome_options.add_argument("--disable-software-rasterizer")
+    
+    # Use chromium instead of chrome for GCP
+    chrome_options.binary_location = "/usr/bin/chromium-browser"
     
     if not headless:
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
@@ -84,7 +87,7 @@ def setup_driver(headless=True):
         return driver
     except Exception as e:
         print(f"❌ Error setting up driver: {e}")
-        print("💡 Try installing ChromeDriver manually: brew install chromedriver")
+        print("💡 Try installing Chromium manually: sudo apt install chromium-browser chromium-chromedriver")
         return None
 
 def twitter_login(driver):
