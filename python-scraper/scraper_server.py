@@ -91,12 +91,12 @@ def setup_driver(headless=True):
             print(f"📱 Chrome version: {chrome_version}")
             print(f"🔢 Major version: {version_match}")
             
-            # If Chrome version is too new (140+), use stable version (120)
-            if int(version_match) >= 140:
-                print("⚠️ Chrome version too new, using stable ChromeDriver for version 120")
-                version_match = "120"
+            # If Chrome version is too new (120+), use stable version (114)
+            if int(version_match) >= 120:
+                print("⚠️ Chrome version too new, using stable ChromeDriver for version 114")
+                version_match = "114"
         except:
-            version_match = "120"  # Use stable version
+            version_match = "114"  # Use stable version
         
         # Download ChromeDriver
         import requests
@@ -106,8 +106,8 @@ def setup_driver(headless=True):
         # Use stable ChromeDriver versions that actually work
         print("🔧 Using stable ChromeDriver download method...")
         
-        # Try stable ChromeDriver versions (120-130 range)
-        stable_versions = ["120", "121", "122", "123", "124", "125", "126", "127", "128", "129", "130"]
+        # Try ChromeDriver versions that actually exist (114-119 range)
+        stable_versions = ["114", "115", "116", "117", "118", "119"]
         
         driver_version = None
         for version in stable_versions:
