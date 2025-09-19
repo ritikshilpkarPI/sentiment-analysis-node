@@ -25,11 +25,11 @@ driver_instance = None
 server_socket = None
 is_running = False
 
-def setup_driver(headless=False):
-    """Setup Chrome driver with options"""
+def setup_driver(headless=True):
+    """Setup Chrome driver with options for AWS deployment"""
     chrome_options = Options()
     
-    # Common options for stability
+    # AWS/Linux specific options for stability
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
@@ -40,6 +40,9 @@ def setup_driver(headless=False):
     chrome_options.add_argument("--disable-background-timer-throttling")
     chrome_options.add_argument("--disable-backgrounding-occluded-windows")
     chrome_options.add_argument("--disable-renderer-backgrounding")
+    chrome_options.add_argument("--remote-debugging-port=9222")
+    chrome_options.add_argument("--disable-setuid-sandbox")
+    chrome_options.add_argument("--disable-software-rasterizer")
     
     if not headless:
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")

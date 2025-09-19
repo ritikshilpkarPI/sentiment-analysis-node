@@ -506,22 +506,52 @@ router.post('/runAnalysis', async (req, res) => {
             console.log('Handles:', handles);
         }
 
-        // Try X API first if enabled, with automatic fallback to scraper
-        const shouldTryXApi = process.env.NODE_ENV === 'production' || process.env.USE_X_API === 'true';
+        // AWS: X API with scraper fallback, Railway: X API only
+        const isAWS = process.env.AWS_DEPLOYMENT === 'true';
+        const isProduction = process.env.NODE_ENV === 'production';
+        const shouldTryXApi = isProduction || process.env.USE_X_API === 'true';
         
         if (shouldTryXApi) {
-            // Start X API analysis with fallback
-            startXApiAnalysisWithFallback(keywords, handles || []);
-            
-            res.json({
-                success: true,
-                message: 'Analysis started with X API (fallback to scraper if needed)',
-                keywords: keywords,
-                handles: handles || [],
-                status: 'running',
-                method: 'x_api_with_fallback',
-                note: 'Will automatically fallback to scraper if X API fails. Check server logs for progress.'
-            });
+            if (isAWS) {
+                // AWS: X API with scraper fallback (browser available)
+                startXApiAnalysisWithFallback(keywords, handles || []);
+                
+                res.json({
+                    success: true,
+                    message: 'Analysis started with X API (AWS mode with scraper fallback)',
+                    keywords: keywords,
+                    handles: handles || [],
+                    status: 'running',
+                    method: 'x_api_aws_fallback',
+                    note: 'AWS mode: Will automatically fallback to scraper if X API fails. Check server logs for progress.'
+                });
+            } else if (isProduction) {
+                // Production: X API with scraper fallback for rate limits
+                startXApiAnalysisWithFallback(keywords, handles || []);
+                
+                res.json({
+                    success: true,
+                    message: 'Analysis started with X API (production mode with scraper fallback)',
+                    keywords: keywords,
+                    handles: handles || [],
+                    status: 'running',
+                    method: 'x_api_production_fallback',
+                    note: 'Production mode: X API first, scraper fallback if rate limit hit. Check server logs for progress.'
+                });
+            } else {
+                // Development: X API with scraper fallback
+                startXApiAnalysisWithFallback(keywords, handles || []);
+                
+                res.json({
+                    success: true,
+                    message: 'Analysis started with X API (fallback to scraper if needed)',
+                    keywords: keywords,
+                    handles: handles || [],
+                    status: 'running',
+                    method: 'x_api_with_fallback',
+                    note: 'Development mode: Will automatically fallback to scraper if X API fails. Check server logs for progress.'
+                });
+            }
         } else {
             // Use scraper directly in development
             const scraperPath = path.join(__dirname, '..', '..', 'python-scraper', 'scrape_tweets.py');
@@ -707,6 +737,16 @@ async function fallbackToScraper(keywords, handles) {
     console.log('📝 [FALLBACK] Keywords:', keywords);
     console.log('👤 [FALLBACK] Handles:', handles);
     
+    // Check if we're in a production environment that supports scraper
+    const isAWS = process.env.AWS_DEPLOYMENT === 'true';
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (isProduction && !isAWS) {
+        console.log('🚫 [FALLBACK] Production mode without AWS: Scraper not available');
+        console.log('💡 [FALLBACK] Consider upgrading X API plan or deploying to AWS');
+        return false;
+    }
+    
     const scraperPath = path.join(__dirname, '..', '..', 'python-scraper', 'scrape_tweets.py');
     
     // Check if scraper file exists
@@ -779,14 +819,16 @@ async function startXApiAnalysis(keywords, handles) {
         }
         
         if (rateLimitHit) {
-            console.log('⚠️ [X_API] Rate limit hit, returning false for fallback');
-            return false;
+            console.log('⚠️ [X_API] Rate limit hit');
+            console.log('🔄 [X_API] Triggering scraper fallback for rate limit');
+            return false; // Always trigger fallback for rate limits
         }
         
-        // If no tweets were found for any keyword, also trigger fallback
+        // If no tweets were found for any keyword
         if (totalTweetsProcessed === 0) {
-            console.log('❌ [X_API] No tweets found for any keyword, returning false for fallback');
-            return false;
+            console.log('❌ [X_API] No tweets found for any keyword');
+            console.log('🔄 [X_API] Triggering scraper fallback for no tweets');
+            return false; // Always trigger fallback when no tweets found
         }
         
         console.log('✅ [X_API] Successfully processed', totalTweetsProcessed, 'tweets total');
