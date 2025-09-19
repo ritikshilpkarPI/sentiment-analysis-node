@@ -90,70 +90,69 @@ def setup_driver(headless=True):
             version_match = chrome_version.split()[-1].split('.')[0]
             print(f"📱 Chrome version: {chrome_version}")
             print(f"🔢 Major version: {version_match}")
+            
+            # If Chrome version is too new (140+), use stable version (120)
+            if int(version_match) >= 140:
+                print("⚠️ Chrome version too new, using stable ChromeDriver for version 120")
+                version_match = "120"
         except:
-            version_match = "140"  # Fallback
+            version_match = "120"  # Use stable version
         
         # Download ChromeDriver
         import requests
         import zipfile
         import os
         
-        # Use the NEW ChromeDriver download method (Google changed their system)
-        print("🔧 Using NEW ChromeDriver download method...")
+        # Use stable ChromeDriver versions that actually work
+        print("🔧 Using stable ChromeDriver download method...")
         
-        # Download from the new Google Chrome for Testing API
-        try:
-            # Get the latest ChromeDriver version from the new API
-            api_url = "https://googlechromelabs.github.io/chrome-for-testing/latest-patch-versions-per-milestone.json"
-            response = requests.get(api_url, timeout=10)
-            
-            if response.status_code != 200:
-                print("❌ Failed to get ChromeDriver version info")
-                return None
-            
-            data = response.json()
-            
-            # Find the latest stable version
-            latest_version = None
-            for milestone in data.get("milestones", {}):
-                if data["milestones"][milestone].get("downloads", {}).get("chromedriver"):
-                    latest_version = milestone
+        # Try stable ChromeDriver versions (120-130 range)
+        stable_versions = ["120", "121", "122", "123", "124", "125", "126", "127", "128", "129", "130"]
+        
+        driver_version = None
+        for version in stable_versions:
+            try:
+                # Try to get the latest patch version for this major version
+                url = f"https://chromedriver.storage.googleapis.com/LATEST_RELEASE_{version}"
+                print(f"🔍 Trying ChromeDriver version {version}...")
+                
+                response = requests.get(url, timeout=10)
+                if response.status_code == 200:
+                    driver_version = response.text.strip()
+                    print(f"✅ Found ChromeDriver version: {driver_version}")
                     break
-            
-            if not latest_version:
-                print("❌ No ChromeDriver version found")
-                return None
-            
-            print(f"✅ Found latest ChromeDriver version: {latest_version}")
-            
-            # Download ChromeDriver
-            download_url = f"https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/{latest_version}/linux64/chromedriver-linux64.zip"
-            print(f"📥 Downloading from: {download_url}")
-            
-            response = requests.get(download_url, timeout=30)
-            if response.status_code != 200:
-                print(f"❌ Download failed: {response.status_code}")
-                return None
-            
-            # Save and extract
-            zip_path = "/tmp/chromedriver.zip"
-            with open(zip_path, 'wb') as f:
-                f.write(response.content)
-            
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall("/tmp/")
-            
-            # Make executable
-            driver_path = "/tmp/chromedriver-linux64/chromedriver"
-            os.chmod(driver_path, 0o755)
-            
-            print(f"✅ ChromeDriver ready at: {driver_path}")
-            
-            service = Service(driver_path)
-            
-        except Exception as e:
-            print(f"❌ Error with new download method: {e}")
+            except Exception as e:
+                print(f"❌ Failed for version {version}: {e}")
+                continue
+        
+        if not driver_version:
+            print("❌ Could not find any stable ChromeDriver version")
             return None
+        
+        # Download ChromeDriver
+        driver_url = f"https://chromedriver.storage.googleapis.com/{driver_version}/chromedriver_linux64.zip"
+        print(f"📥 Downloading from: {driver_url}")
+        
+        response = requests.get(driver_url, timeout=30)
+        if response.status_code != 200:
+            print(f"❌ Download failed: {response.status_code}")
+            return None
+        
+        # Save and extract
+        zip_path = "/tmp/chromedriver.zip"
+        with open(zip_path, 'wb') as f:
+            f.write(response.content)
+        
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall("/tmp/")
+        
+        # Make executable
+        driver_path = "/tmp/chromedriver"
+        os.chmod(driver_path, 0o755)
+        
+        print(f"✅ ChromeDriver ready at: {driver_path}")
+        
+        service = Service(driver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
