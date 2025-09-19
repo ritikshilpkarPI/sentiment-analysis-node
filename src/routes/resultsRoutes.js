@@ -646,57 +646,76 @@ function sendScraperRequest(keywords, handles) {
 
 // Function to start scraper in background (now uses server)
 function startScraperInBackground(scriptPath, keywords, handles) {
+    console.log('🐍 [SCRAPER] Starting Python scraper in background');
+    console.log('📝 [SCRAPER] Keywords:', keywords);
+    console.log('👤 [SCRAPER] Handles:', handles);
     
     // Start server if not running
     if (!scraperServerProcess) {
+        console.log('🚀 [SCRAPER] Starting scraper server...');
         startScraperServer();
         
         // Wait for server to be ready
         setTimeout(() => {
+            console.log('📡 [SCRAPER] Sending request to scraper server');
             sendScraperRequest(keywords, handles).catch(error => {
-                // RUN_ANALYSIS Scraper request failed
+                console.log('💥 [SCRAPER] Scraper request failed:', error.message);
             });
         }, 10000); // Wait 10 seconds for server to be ready
     } else {
+        console.log('✅ [SCRAPER] Server already running, sending request immediately');
         // Server already running, send request immediately
         sendScraperRequest(keywords, handles).catch(error => {
-            // RUN_ANALYSIS Scraper request failed
+            console.log('💥 [SCRAPER] Scraper request failed:', error.message);
         });
     }
 }
 
 // Function to start X API analysis with automatic scraper fallback
 async function startXApiAnalysisWithFallback(keywords, handles) {
+    console.log('🚀 [ANALYSIS_FLOW] Starting analysis with fallback system');
+    console.log('📝 [ANALYSIS_FLOW] Keywords:', keywords);
+    console.log('👤 [ANALYSIS_FLOW] Handles:', handles);
+    
     try {
         // Check if X API credentials are available
         if (!process.env.X_API_BEARER_TOKEN) {
+            console.log('❌ [ANALYSIS_FLOW] No X API token found, falling back to scraper');
             return fallbackToScraper(keywords, handles);
         }
 
+        console.log('✅ [ANALYSIS_FLOW] X API token found, trying X API first');
         // Try X API first
         const success = await startXApiAnalysis(keywords, handles);
         
         if (!success) {
+            console.log('⚠️ [ANALYSIS_FLOW] X API failed, falling back to scraper');
             return fallbackToScraper(keywords, handles);
         }
         
+        console.log('🎉 [ANALYSIS_FLOW] X API analysis completed successfully');
+        
     } catch (error) {
-        // X_API_FALLBACK X API error, falling back to scraper
+        console.log('💥 [ANALYSIS_FLOW] X API error occurred, falling back to scraper:', error.message);
         return fallbackToScraper(keywords, handles);
     }
 }
 
 // Function to fallback to scraper
 async function fallbackToScraper(keywords, handles) {
-    console.log('Keywords:', keywords);
+    console.log('🔄 [FALLBACK] Switching to Python scraper');
+    console.log('📝 [FALLBACK] Keywords:', keywords);
+    console.log('👤 [FALLBACK] Handles:', handles);
     
     const scraperPath = path.join(__dirname, '..', '..', 'python-scraper', 'scrape_tweets.py');
     
     // Check if scraper file exists
     if (!fs.existsSync(scraperPath)) {
-        // FALLBACK Scraper file not found
+        console.log('❌ [FALLBACK] Scraper file not found at:', scraperPath);
         return false;
     }
+    
+    console.log('✅ [FALLBACK] Scraper file found, starting Python scraper');
     // Start the scraper in the background
     startScraperInBackground(scraperPath, keywords, handles);
     return true;
@@ -705,44 +724,51 @@ async function fallbackToScraper(keywords, handles) {
 // Function to start X API analysis in background (modified to return success status)
 async function startXApiAnalysis(keywords, handles) {
     try {
+        console.log('🔍 [X_API] Starting X API analysis');
         // Check if X API credentials are available
         if (!process.env.X_API_BEARER_TOKEN) {
-            // X_API Bearer Token not found
+            console.log('❌ [X_API] Bearer Token not found');
             return false;
         }
         
+        console.log('✅ [X_API] Bearer Token found, proceeding with X API');
         let totalTweetsProcessed = 0;
         let rateLimitHit = false;
         
         for (const keyword of keywords) {
-            console.log('Keywords:', keywords);
+            console.log('🔍 [X_API] Processing keyword:', keyword);
             
             if (handles && handles.length > 0) {
+                console.log('👤 [X_API] Searching within handles:', handles);
                 // Search within specific handles
                 for (const handle of handles) {
+                    console.log('🔍 [X_API] Fetching tweets for keyword:', keyword, 'in handle:', handle);
                     const tweets = await fetchTweetsFromXApi(keyword, handle);
                     
                     if (tweets === null) {
-                        // Rate limit hit
+                        console.log('⚠️ [X_API] Rate limit hit for handle:', handle);
                         rateLimitHit = true;
                         break;
                     }
                     
+                    console.log('📊 [X_API] Found', tweets.length, 'tweets for handle:', handle);
                     if (tweets && tweets.length > 0) {
                         await processTweetsWithSentiment(tweets, keyword, handle);
                         totalTweetsProcessed += tweets.length;
                     }
                 }
             } else {
+                console.log('🌐 [X_API] General search for keyword:', keyword);
                 // General search
                 const tweets = await fetchTweetsFromXApi(keyword);
                 
                 if (tweets === null) {
-                    // Rate limit hit
+                    console.log('⚠️ [X_API] Rate limit hit for keyword:', keyword);
                     rateLimitHit = true;
                     break;
                 }
                 
+                console.log('📊 [X_API] Found', tweets.length, 'tweets for keyword:', keyword);
                 if (tweets && tweets.length > 0) {
                     await processTweetsWithSentiment(tweets, keyword);
                     totalTweetsProcessed += tweets.length;
@@ -753,18 +779,21 @@ async function startXApiAnalysis(keywords, handles) {
         }
         
         if (rateLimitHit) {
+            console.log('⚠️ [X_API] Rate limit hit, returning false for fallback');
             return false;
         }
         
         // If no tweets were found for any keyword, also trigger fallback
         if (totalTweetsProcessed === 0) {
+            console.log('❌ [X_API] No tweets found for any keyword, returning false for fallback');
             return false;
         }
         
+        console.log('✅ [X_API] Successfully processed', totalTweetsProcessed, 'tweets total');
         return true;
         
     } catch (error) {
-        // X_API Error in X API analysis
+        console.log('💥 [X_API] Error in X API analysis:', error.message);
         return false;
     }
 }
