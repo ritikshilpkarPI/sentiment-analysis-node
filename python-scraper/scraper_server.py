@@ -13,11 +13,10 @@ import socket
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 import hashlib
 
 # Global driver instance
@@ -26,144 +25,56 @@ server_socket = None
 is_running = False
 
 def setup_driver(headless=True):
-    """Setup Chrome driver with options for GCP deployment"""
-    chrome_options = Options()
+    """Setup Firefox driver with options for GCP deployment"""
+    firefox_options = Options()
     
-    # GCP/Linux specific options for stability
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--disable-web-security")
-    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-plugins")
-    chrome_options.add_argument("--disable-background-timer-throttling")
-    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-    chrome_options.add_argument("--disable-renderer-backgrounding")
-    chrome_options.add_argument("--remote-debugging-port=9222")
-    chrome_options.add_argument("--disable-setuid-sandbox")
-    chrome_options.add_argument("--disable-software-rasterizer")
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--disable-logging")
-    chrome_options.add_argument("--disable-default-apps")
-    chrome_options.add_argument("--disable-sync")
-    chrome_options.add_argument("--disable-translate")
-    chrome_options.add_argument("--hide-scrollbars")
-    chrome_options.add_argument("--mute-audio")
-    chrome_options.add_argument("--no-first-run")
-    chrome_options.add_argument("--disable-background-networking")
-    chrome_options.add_argument("--disable-background-timer-throttling")
-    chrome_options.add_argument("--disable-renderer-backgrounding")
-    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-    chrome_options.add_argument("--disable-client-side-phishing-detection")
-    chrome_options.add_argument("--disable-crash-reporter")
-    chrome_options.add_argument("--disable-oopr-debug-crash-dump")
-    chrome_options.add_argument("--no-crash-upload")
-    chrome_options.add_argument("--disable-gpu-sandbox")
-    chrome_options.add_argument("--disable-software-rasterizer")
-    chrome_options.add_argument("--disable-background-timer-throttling")
-    chrome_options.add_argument("--disable-renderer-backgrounding")
-    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-    chrome_options.add_argument("--disable-ipc-flooding-protection")
-    
-    # Use Google Chrome for GCP
-    chrome_options.binary_location = "/usr/bin/google-chrome-stable"
+    # Firefox specific options for stability
+    firefox_options.add_argument("--no-sandbox")
+    firefox_options.add_argument("--disable-dev-shm-usage")
+    firefox_options.add_argument("--disable-gpu")
+    firefox_options.add_argument("--disable-web-security")
+    firefox_options.add_argument("--disable-extensions")
+    firefox_options.add_argument("--disable-plugins")
+    firefox_options.add_argument("--disable-background-timer-throttling")
+    firefox_options.add_argument("--disable-backgrounding-occluded-windows")
+    firefox_options.add_argument("--disable-renderer-backgrounding")
+    firefox_options.add_argument("--disable-setuid-sandbox")
+    firefox_options.add_argument("--disable-software-rasterizer")
+    firefox_options.add_argument("--disable-logging")
+    firefox_options.add_argument("--disable-default-apps")
+    firefox_options.add_argument("--disable-sync")
+    firefox_options.add_argument("--disable-translate")
+    firefox_options.add_argument("--hide-scrollbars")
+    firefox_options.add_argument("--mute-audio")
+    firefox_options.add_argument("--no-first-run")
+    firefox_options.add_argument("--disable-background-networking")
+    firefox_options.add_argument("--disable-client-side-phishing-detection")
+    firefox_options.add_argument("--disable-crash-reporter")
+    firefox_options.add_argument("--no-crash-upload")
     
     if not headless:
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        chrome_options.add_argument("--window-size=1920,1080")
+        firefox_options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0")
+        firefox_options.add_argument("--window-size=1920,1080")
     else:
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--window-size=1920,1080")
+        firefox_options.add_argument("--headless")
+        firefox_options.add_argument("--window-size=1920,1080")
     
     try:
-        # Manual ChromeDriver download approach
-        print("🔧 Downloading ChromeDriver manually...")
+        print("🔧 Setting up Firefox driver...")
         
-        # Get Chrome version
-        import subprocess
-        try:
-            chrome_version = subprocess.check_output(['google-chrome-stable', '--version'], text=True).strip()
-            version_match = chrome_version.split()[-1].split('.')[0]
-            print(f"📱 Chrome version: {chrome_version}")
-            print(f"🔢 Major version: {version_match}")
-            
-            # If Chrome version is too new (120+), use stable version (114)
-            if int(version_match) >= 120:
-                print("⚠️ Chrome version too new, using stable ChromeDriver for version 114")
-                version_match = "114"
-        except:
-            version_match = "114"  # Use stable version
-        
-        # Download ChromeDriver
-        import requests
-        import zipfile
-        import os
-        
-        # Use stable ChromeDriver versions that actually work
-        print("🔧 Using stable ChromeDriver download method...")
-        
-        # Try ChromeDriver versions that actually exist (114-119 range)
-        stable_versions = ["114", "115", "116", "117", "118", "119"]
-        
-        driver_version = None
-        for version in stable_versions:
-            try:
-                # Try to get the latest patch version for this major version
-                url = f"https://chromedriver.storage.googleapis.com/LATEST_RELEASE_{version}"
-                print(f"🔍 Trying ChromeDriver version {version}...")
-                
-                response = requests.get(url, timeout=10)
-                if response.status_code == 200:
-                    driver_version = response.text.strip()
-                    print(f"✅ Found ChromeDriver version: {driver_version}")
-                    break
-            except Exception as e:
-                print(f"❌ Failed for version {version}: {e}")
-                continue
-        
-        if not driver_version:
-            print("❌ Could not find any stable ChromeDriver version")
-            return None
-        
-        # Download ChromeDriver
-        driver_url = f"https://chromedriver.storage.googleapis.com/{driver_version}/chromedriver_linux64.zip"
-        print(f"📥 Downloading from: {driver_url}")
-        
-        response = requests.get(driver_url, timeout=30)
-        if response.status_code != 200:
-            print(f"❌ Download failed: {response.status_code}")
-            return None
-        
-        # Save and extract
-        zip_path = "/tmp/chromedriver.zip"
-        with open(zip_path, 'wb') as f:
-            f.write(response.content)
-        
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall("/tmp/")
-        
-        # Make executable
-        driver_path = "/tmp/chromedriver"
-        os.chmod(driver_path, 0o755)
-        
-        print(f"✅ ChromeDriver ready at: {driver_path}")
-        
-        service = Service(driver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        # Use system geckodriver
+        service = Service("/usr/local/bin/geckodriver")
+        driver = webdriver.Firefox(service=service, options=firefox_options)
         
         # Set timeouts
         driver.set_page_load_timeout(30)
         driver.implicitly_wait(10)
         
+        print("✅ Firefox driver ready")
         return driver
     except Exception as e:
-        print(f"❌ Error setting up driver: {e}")
-        print("💡 Try installing Chrome manually: sudo apt install google-chrome-stable")
+        print(f"❌ Error setting up Firefox driver: {e}")
+        print("💡 Try installing Firefox and geckodriver manually")
         return None
 
 def twitter_login(driver):
