@@ -13,10 +13,11 @@ import socket
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.firefox.service import Service
-from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
 import hashlib
 
 # Global driver instance
@@ -25,56 +26,83 @@ server_socket = None
 is_running = False
 
 def setup_driver(headless=True):
-    """Setup Firefox driver with options for GCP deployment"""
-    firefox_options = Options()
+    """Setup Chrome driver with options for GCP deployment"""
+    chrome_options = Options()
     
-    # Firefox specific options for stability
-    firefox_options.add_argument("--no-sandbox")
-    firefox_options.add_argument("--disable-dev-shm-usage")
-    firefox_options.add_argument("--disable-gpu")
-    firefox_options.add_argument("--disable-web-security")
-    firefox_options.add_argument("--disable-extensions")
-    firefox_options.add_argument("--disable-plugins")
-    firefox_options.add_argument("--disable-background-timer-throttling")
-    firefox_options.add_argument("--disable-backgrounding-occluded-windows")
-    firefox_options.add_argument("--disable-renderer-backgrounding")
-    firefox_options.add_argument("--disable-setuid-sandbox")
-    firefox_options.add_argument("--disable-software-rasterizer")
-    firefox_options.add_argument("--disable-logging")
-    firefox_options.add_argument("--disable-default-apps")
-    firefox_options.add_argument("--disable-sync")
-    firefox_options.add_argument("--disable-translate")
-    firefox_options.add_argument("--hide-scrollbars")
-    firefox_options.add_argument("--mute-audio")
-    firefox_options.add_argument("--no-first-run")
-    firefox_options.add_argument("--disable-background-networking")
-    firefox_options.add_argument("--disable-client-side-phishing-detection")
-    firefox_options.add_argument("--disable-crash-reporter")
-    firefox_options.add_argument("--no-crash-upload")
+    # GCP/Linux specific options for stability
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-plugins")
+    chrome_options.add_argument("--disable-background-timer-throttling")
+    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+    chrome_options.add_argument("--disable-renderer-backgrounding")
+    chrome_options.add_argument("--remote-debugging-port=9222")
+    chrome_options.add_argument("--disable-setuid-sandbox")
+    chrome_options.add_argument("--disable-software-rasterizer")
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--disable-logging")
+    chrome_options.add_argument("--disable-default-apps")
+    chrome_options.add_argument("--disable-sync")
+    chrome_options.add_argument("--disable-translate")
+    chrome_options.add_argument("--hide-scrollbars")
+    chrome_options.add_argument("--mute-audio")
+    chrome_options.add_argument("--no-first-run")
+    chrome_options.add_argument("--disable-background-networking")
+    chrome_options.add_argument("--disable-background-timer-throttling")
+    chrome_options.add_argument("--disable-renderer-backgrounding")
+    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+    chrome_options.add_argument("--disable-client-side-phishing-detection")
+    chrome_options.add_argument("--disable-crash-reporter")
+    chrome_options.add_argument("--disable-oopr-debug-crash-dump")
+    chrome_options.add_argument("--no-crash-upload")
+    chrome_options.add_argument("--disable-gpu-sandbox")
+    chrome_options.add_argument("--disable-software-rasterizer")
+    chrome_options.add_argument("--disable-background-timer-throttling")
+    chrome_options.add_argument("--disable-renderer-backgrounding")
+    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+    chrome_options.add_argument("--disable-ipc-flooding-protection")
+    
+    # Use Google Chrome for GCP
+    chrome_options.binary_location = "/usr/bin/google-chrome-stable"
     
     if not headless:
-        firefox_options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0")
-        firefox_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        chrome_options.add_argument("--window-size=1920,1080")
     else:
-        firefox_options.add_argument("--headless")
-        firefox_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--window-size=1920,1080")
     
     try:
-        print("🔧 Setting up Firefox driver...")
+        # Use WebDriver Manager to get correct ChromeDriver version
+        print("🔧 Using WebDriver Manager for correct ChromeDriver version...")
         
-        # Use system geckodriver
-        service = Service("/usr/local/bin/geckodriver")
-        driver = webdriver.Firefox(service=service, options=firefox_options)
+        # Clear any corrupted cache first
+        import os
+        wdm_cache = os.path.expanduser("~/.wdm")
+        if os.path.exists(wdm_cache):
+            print("🧹 Clearing WebDriver Manager cache...")
+            import shutil
+            shutil.rmtree(wdm_cache, ignore_errors=True)
+        
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         # Set timeouts
         driver.set_page_load_timeout(30)
         driver.implicitly_wait(10)
         
-        print("✅ Firefox driver ready")
         return driver
     except Exception as e:
-        print(f"❌ Error setting up Firefox driver: {e}")
-        print("💡 Try installing Firefox and geckodriver manually")
+        print(f"❌ Error setting up driver: {e}")
+        print("💡 Try installing Chrome manually: sudo apt install google-chrome-stable")
         return None
 
 def twitter_login(driver):
