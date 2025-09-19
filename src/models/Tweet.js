@@ -43,6 +43,52 @@ const Tweet = sequelize.define('Tweet', {
     isActive: {
         type: DataTypes.BOOLEAN,
         defaultValue: true
+    },
+    keyword: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    mediaImages: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: []
+    },
+    mediaVideos: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: []
+    },
+    mediaAnalysis: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    mediaRelevance: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    mediaDescription: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    grokAnalysis: {
+        type: DataTypes.JSON,
+        allowNull: true
+    },
+    crossValidation: {
+        type: DataTypes.JSON,
+        allowNull: true
+    },
+    analysisConfidence: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    consensusResult: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    newsValidation: {
+        type: DataTypes.JSON,
+        allowNull: true
     }
 }, {
     timestamps: true

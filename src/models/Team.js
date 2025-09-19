@@ -9,7 +9,7 @@ const Team = sequelize.define('Team', {
     },
     name: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: true
     },
     description: {
         type: DataTypes.TEXT

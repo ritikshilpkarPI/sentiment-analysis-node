@@ -10,23 +10,20 @@ const User = sequelize.define('User', {
     },
     email: {
         type: DataTypes.STRING,
-        allowNull: false,
-        unique: true,
-        validate: {
-            isEmail: true
-        }
+        allowNull: true,
+        unique: true
     },
     password: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: true
     },
     name: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: true
     },
     role: {
-        type: DataTypes.ENUM('COMPANY_ADMIN', 'TEAM_ADMIN', 'TEAM_MEMBER'),
-        defaultValue: 'TEAM_MEMBER'
+        type: DataTypes.ENUM('USER', 'COMPANY_ADMIN', 'TEAM_ADMIN', 'TEAM_MEMBER'),
+        defaultValue: 'USER'
     },
     canAddKeywords: {
         type: DataTypes.BOOLEAN,

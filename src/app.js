@@ -43,7 +43,7 @@ app.get('/results', (req, res) => {
         const results = JSON.parse(fs.readFileSync(RESULTS_OUTPUT_FILE_JSON, 'utf-8'));
         res.json(results);
     } catch (error) {
-        console.error('[ERROR] Failed to read results:', error);
+        // ERROR Failed to read results
         res.status(500).json({ error: 'Failed to read results' });
     }
 });
@@ -54,7 +54,7 @@ DbService.initialize()
         console.log('Database initialized successfully');
     })
     .catch(err => {
-        console.error('Failed to initialize database:', err);
+        // Failed to initialize database
         process.exit(1);
     });
 
@@ -91,26 +91,78 @@ function readTweetsFromFile(filePath) {
     console.log(`[DEBUG] Reading tweets from: ${filePath}`);
     const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
     const tweets = [];
-    let currentLines = [];
+    let currentTweet = { content: '', keyword: '', media: { images: [], videos: [] } };
+    let inTweet = false;
+    let inTextSection = false;
 
     for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('## ')) {
+        if (!trimmed) {
             continue;
         }
-        if (trimmed.startsWith('- ')) {
-            if (currentLines.length > 0) {
-                tweets.push(currentLines.join(' ').trim());
-                currentLines = [];
+        
+        // Start of new tweet
+        if (trimmed.startsWith('## Tweet')) {
+            // Save previous tweet if exists
+            if (inTweet && currentTweet.content.trim()) {
+                tweets.push(currentTweet);
             }
-            currentLines.push(trimmed.slice(2).trim()); // remove '- '
-        } else {
-            currentLines.push(trimmed);
+            
+            // Start new tweet
+            currentTweet = { content: '', keyword: '', media: { images: [], videos: [] } };
+            inTweet = true;
+            inTextSection = false;
+            continue;
+        }
+        
+        if (!inTweet) continue;
+        
+        // Handle different fields
+        if (trimmed.startsWith('**Author:**')) {
+            // Skip author for now, we'll use it later if needed
+            continue;
+        } else if (trimmed.startsWith('**Time:**')) {
+            // Skip time for now
+            continue;
+        } else if (trimmed.startsWith('**Text:**')) {
+            // Start text section
+            inTextSection = true;
+            const textContent = trimmed.replace('**Text:**', '').trim();
+            currentTweet.content = textContent;
+        } else if (trimmed.startsWith('**Keyword:**')) {
+            inTextSection = false;
+            currentTweet.keyword = trimmed.replace('**Keyword:**', '').trim();
+        } else if (trimmed.startsWith('**Images:**')) {
+            inTextSection = false;
+            // Just note that images are coming, don't create placeholders
+            // The actual URLs will be parsed from the - Image lines
+        } else if (trimmed.startsWith('**Videos:**')) {
+            inTextSection = false;
+            // Just note that videos are coming, don't create placeholders
+            // The actual URLs will be parsed from the - Video lines
+        } else if (trimmed.startsWith('- Image ') || trimmed.startsWith('- Video ')) {
+            inTextSection = false;
+            // Parse individual media URLs
+            const mediaMatch = trimmed.match(/^- (Image|Video) \d+: (.+?)(?:\s+\(type: (.+)\))?$/);
+            if (mediaMatch) {
+                const [, type, url, mediaType] = mediaMatch;
+                if (type === 'Image') {
+                    currentTweet.media.images.push({ url, type: 'image' });
+                } else if (type === 'Video') {
+                    currentTweet.media.videos.push({ url, type: mediaType || 'video' });
+                }
+            }
+        } else if (inTextSection && !trimmed.startsWith('**')) {
+            // Add to content if we're in text section
+            currentTweet.content += ' ' + trimmed;
         }
     }
-    if (currentLines.length > 0) {
-        tweets.push(currentLines.join(' ').trim());
+    
+    // Save last tweet
+    if (inTweet && currentTweet.content.trim()) {
+        tweets.push(currentTweet);
     }
+    
     console.log(`[DEBUG] Found ${tweets.length} tweet lines in ${filePath}`);
     return tweets;
 }
@@ -123,7 +175,7 @@ function readExistingTopics() {
             return content.split('\n').filter(line => line.trim());
         }
     } catch (err) {
-        console.error('[ERROR] Failed to read topics:', err);
+        // ERROR Failed to read topics
     }
     return [];
 }
@@ -222,7 +274,7 @@ async function callGeminiApi(tweet) {
 
         return { sentiment, topic, news };
     } catch (err) {
-        console.error('Gemini API error:', err);
+        // Gemini API error
         return { sentiment: 'NEUTRAL', topic: 'Unknown', news: [] };
     }
 }
@@ -246,7 +298,7 @@ async function fetchGoogleNews(topic, location = 'IN') {
         }
         return [];
     } catch (error) {
-        console.error('[ERROR] Failed to fetch Google News:', error.message);
+        // ERROR Failed to fetch Google News
         return [];
     }
 }
@@ -278,7 +330,7 @@ function appendResultsToJson(results) {
             try {
                 data = JSON.parse(fs.readFileSync(RESULTS_OUTPUT_FILE_JSON, 'utf-8'));
             } catch (err) {
-                console.error('[ERROR] Failed to parse existing JSON:', err);
+                // ERROR Failed to parse existing JSON
             }
         }
         for (const [tweet, sentiment, topic, news] of results) {
@@ -294,12 +346,12 @@ function appendResultsToJson(results) {
         fs.writeFileSync(RESULTS_OUTPUT_FILE_JSON, JSON.stringify(data, null, 4), 'utf-8');
         console.log(`[DEBUG] Updated ${RESULTS_OUTPUT_FILE_JSON} with ${results.length} new results`);
     } catch (err) {
-        console.error('[ERROR] Failed to write to JSON file:', err);
+        // ERROR Failed to write to JSON file
     }
 }
 
 // Process tweets and store results (both file and DB)
-async function processTweets() {
+async function processTweets(tweetsToProcess = null) {
     if (isProcessingTweets) {
         console.log('Tweet processing already in progress');
         return;
@@ -308,47 +360,79 @@ async function processTweets() {
         isProcessingTweets = true;
         console.log('Starting tweet processing...');
         
-        if (!fs.existsSync(TWEETS_INPUT_FILE)) {
-            console.log('No tweets file found at:', TWEETS_INPUT_FILE);
-            return;
+        let newTweets;
+        
+        if (tweetsToProcess) {
+            // Process specific tweets passed as parameter
+            newTweets = tweetsToProcess;
+            console.log(`[DEBUG] Processing ${newTweets.length} specific tweets`);
+        } else {
+            // Process tweets from file (original behavior)
+            if (!fs.existsSync(TWEETS_INPUT_FILE)) {
+                console.log('No tweets file found at:', TWEETS_INPUT_FILE);
+                return;
+            }
+
+            // Get last processed count and read all tweets
+            let lastCount = getLastTweetCount();
+            const allTweets = readTweetsFromFile(TWEETS_INPUT_FILE);
+            const total = allTweets.length;
+
+            if (total > lastCount) {
+                newTweets = allTweets.slice(lastCount);
+                console.log(`[DEBUG] Found ${newTweets.length} new tweets`);
+            } else {
+                console.log(`[DEBUG] No new tweets. ${total} total, ${lastCount} already processed.`);
+                return;
+            }
         }
 
-        // Get default team and company
-        const defaultTeam = await Team.findOne();
-        const defaultCompany = await Company.findOne();
+        if (newTweets && newTweets.length > 0) {
+            // Get default team and company
+            const defaultTeam = await Team.findOne();
+            const defaultCompany = await Company.findOne();
 
-        if (!defaultTeam || !defaultCompany) {
-            console.error('No default team or company found in the database');
-            return;
-        }
+            if (!defaultTeam || !defaultCompany) {
+                // No default team or company found in the database
+                return;
+            }
 
-        // Get last processed count and read all tweets
-        let lastCount = getLastTweetCount();
-        const allTweets = readTweetsFromFile(TWEETS_INPUT_FILE);
-        const total = allTweets.length;
-
-        if (total > lastCount) {
-            const newTweets = allTweets.slice(lastCount);
-            console.log(`[DEBUG] Found ${newTweets.length} new tweets`);
             let results = [];
 
-            for (const tweet of newTweets) {
-                const { sentiment, topic, news } = await callGeminiApi(tweet);
-                if (!sentiment) {
+            for (const tweetData of newTweets) {
+                const tweet = typeof tweetData === 'string' ? tweetData : tweetData.content;
+                const keyword = typeof tweetData === 'object' ? tweetData.keyword : '';
+                const media = typeof tweetData === 'object' ? tweetData.media : { images: [], videos: [] };
+                
+                // Enhanced analysis with Grok validation
+                const GeminiService = require('./services/geminiService');
+                const enhancedAnalysis = await GeminiService.analyzeSentimentWithGrokValidation(tweet);
+                
+                if (!enhancedAnalysis.finalSentiment) {
                     console.log(`[DEBUG] Error processing tweet: ${tweet}`);
                     continue;
                 }
 
+                // Analyze media content if present with Grok validation
+                let mediaAnalysisResult = null;
+                if (media && (media.images.length > 0 || media.videos.length > 0)) {
+                    console.log(`[SCRAPER] Analyzing media content for tweet: ${media.images.length} images, ${media.videos.length} videos`);
+                    mediaAnalysisResult = await GeminiService.analyzeMediaContentWithGrokValidation(tweet, media);
+                }
+                
+                // Fetch and validate news with Grok
+                const newsValidation = await GeminiService.fetchAndValidateNewsWithGrok(enhancedAnalysis.finalTopic, tweet);
+
                 // Ensure sentiment is in valid format before database operations
-                const validSentiment = mapSentimentToValidEnum(sentiment);
-                results.push([tweet, validSentiment, topic, news]);
+                const validSentiment = mapSentimentToValidEnum(enhancedAnalysis.finalSentiment);
+                results.push([tweet, validSentiment, enhancedAnalysis.finalTopic, newsValidation, keyword, media, mediaAnalysisResult]);
 
                 try {
                     // Save to database
                     // Create or find topic
                     const [topicRecord] = await Topic.findOrCreate({
-                        where: { name: topic },
-                        defaults: { description: `Topic: ${topic}` }
+                        where: { name: enhancedAnalysis.finalTopic },
+                        defaults: { description: `Topic: ${enhancedAnalysis.finalTopic}` }
                     });
 
                     // Create or find sentiment with valid enum value
@@ -361,11 +445,22 @@ async function processTweets() {
                         }
                     });
 
-                    // Create tweet
+                    // Create tweet with enhanced analysis
                     const tweetRecord = await Tweet.create({
                         tweetId: `tweet_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                         content: tweet,
                         author: 'Unknown',
+                        keyword: keyword,
+                        mediaImages: media.images || [],
+                        mediaVideos: media.videos || [],
+                        mediaAnalysis: mediaAnalysisResult?.finalAnalysis || null,
+                        mediaRelevance: mediaAnalysisResult?.finalRelevance || null,
+                        mediaDescription: mediaAnalysisResult?.finalDescription || null,
+                        grokAnalysis: enhancedAnalysis.grok,
+                        crossValidation: enhancedAnalysis.crossValidation,
+                        analysisConfidence: enhancedAnalysis.confidence,
+                        consensusResult: enhancedAnalysis.consensus,
+                        newsValidation: newsValidation,
                         createdAt: new Date(),
                         topicId: topicRecord.id,
                         sentimentId: sentimentRecord.id
@@ -378,19 +473,19 @@ async function processTweets() {
                         companyId: defaultCompany.id
                     });
 
-                    // Create news records and associate them with the result
-                    if (news && news.length > 0) {
-                        for (const newsItem of news) {
+                    // Create validated news records and associate them with the result
+                    if (newsValidation && newsValidation.validatedArticles && newsValidation.validatedArticles.length > 0) {
+                        for (const article of newsValidation.validatedArticles.slice(0, 2)) { // Save top 2 validated articles
                             const newsRecord = await News.create({
-                                title: newsItem.title,
-                                url: newsItem.link,
+                                title: article.title,
+                                url: article.link,
                                 topicId: topicRecord.id
                             });
                             await resultRecord.addNews(newsRecord);
                         }
                     }
                 } catch (dbError) {
-                    console.error('[ERROR] Database operation failed:', dbError);
+                    // ERROR Database operation failed
                     continue;
                 }
             }
@@ -424,7 +519,7 @@ async function processTweets() {
 
         console.log('Tweets processed and stored successfully (both file and DB)');
     } catch (error) {
-        console.error('Error processing tweets:', error);
+        // Error processing tweets
     } finally {
         isProcessingTweets = false;
     }
@@ -443,7 +538,7 @@ async function continuousAnalysis() {
             console.log(`[DEBUG] Waiting ${sleepTime} seconds before next check...\n`);
             await new Promise((resolve) => setTimeout(resolve, sleepTime * 1000));
         } catch (error) {
-            console.error('[ERROR] Error in continuous analysis loop:', error);
+            // ERROR Error in continuous analysis loop
             // Wait 30 seconds before retrying on error
             await new Promise((resolve) => setTimeout(resolve, 30000));
         }
@@ -458,7 +553,7 @@ app.listen(PORT, () => {
     if (process.env.PROCESS_TWEETS === 'true') {
         // Start continuous analysis loop
         continuousAnalysis().catch((err) => {
-            console.error('[ERROR] Error in continuousAnalysis:', err);
+            // ERROR Error in continuousAnalysis
             process.exit(1);
         });
     }
@@ -479,6 +574,9 @@ process.on('SIGINT', async () => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-    console.error(err.stack);
+    // Unhandled error
     res.status(500).json({ error: 'Something went wrong!' });
-}); 
+});
+
+// Export functions for use in other modules
+module.exports = { readTweetsFromFile, processTweets }; 

@@ -8,7 +8,7 @@ const Topic = sequelize.define('Topic', {
         primaryKey: true
     },
     name: {
-        type: DataTypes.STRING,
+        type: DataTypes.TEXT,
         allowNull: true
     },
     description: {

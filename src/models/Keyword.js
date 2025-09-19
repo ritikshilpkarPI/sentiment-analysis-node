@@ -9,7 +9,7 @@ const Keyword = sequelize.define('Keyword', {
     },
     keyword: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: true
     },
     isActive: {
         type: DataTypes.BOOLEAN,

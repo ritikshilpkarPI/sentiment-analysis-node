@@ -7,6 +7,9 @@ const Topic = require('./Topic');
 const Sentiment = require('./Sentiment');
 const Result = require('./Result');
 const News = require('./News');
+const YoutubeCommentCache = require('./YoutubeCommentCache');
+const InstagramCommentCache = require('./InstagramCommentCache');
+const GoogleReviewCache = require('./GoogleReviewCache');
 
 // Company - Team relationship
 Company.hasMany(Team, { foreignKey: 'companyId' });
@@ -70,5 +73,8 @@ module.exports = {
     Topic,
     Sentiment,
     Result,
-    News
+    News,
+    YoutubeCommentCache,
+    InstagramCommentCache,
+    GoogleReviewCache
 }; 

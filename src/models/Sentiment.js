@@ -9,11 +9,7 @@ const Sentiment = sequelize.define('Sentiment', {
     },
     score: {
         type: DataTypes.FLOAT,
-        allowNull: true,
-        validate: {
-            min: -1,
-            max: 1
-        }
+        allowNull: true
     },
     label: {
         type: DataTypes.ENUM('POSITIVE', 'NEGATIVE', 'NEUTRAL'),
@@ -21,11 +17,7 @@ const Sentiment = sequelize.define('Sentiment', {
     },
     confidence: {
         type: DataTypes.FLOAT,
-        allowNull: true,
-        validate: {
-            min: 0,
-            max: 1
-        }
+        allowNull: true
     },
     isActive: {
         type: DataTypes.BOOLEAN,

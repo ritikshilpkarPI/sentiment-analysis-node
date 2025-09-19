@@ -21,10 +21,7 @@ const News = sequelize.define('News', {
     },
     url: {
         type: DataTypes.TEXT,
-        allowNull: true,
-        validate: {
-            isUrl: true
-        }
+        allowNull: true
     },
     publishedAt: {
         type: DataTypes.DATE,
