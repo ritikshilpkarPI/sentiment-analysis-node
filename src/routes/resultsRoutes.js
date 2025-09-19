@@ -995,7 +995,7 @@ async function processTweetsWithSentiment(tweets, keyword, handle = null) {
             });
 
             // Also append to file for compatibility
-            appendTweetToFile(tweet, keyword, handle, sentiment, topic);
+            appendTweetToFile(tweet, keyword, handle, enhancedAnalysis.finalSentiment, enhancedAnalysis.finalTopic);
         }
         
     } catch (error) {

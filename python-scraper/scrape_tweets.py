@@ -15,13 +15,21 @@ TWITTER_USERNAME = ""
 TWITTER_PASSWORD = ""
 # ----------------------------------------------------------------------
 
-# Example list of keywords
-KEYWORDS = ["mohan yadav"]
+# Get keywords and handles from environment variables, fallback to defaults
+def get_keywords_and_handles():
+    import os
+    import json
+    
+    keywords_json = os.getenv('KEYWORDS', '["test"]')
+    handles_json = os.getenv('HANDLES', '[]')
+    
+    keywords = json.loads(keywords_json)
+    handles = json.loads(handles_json)
+    
+    return keywords, handles
 
-# Optional list of specific Twitter handles. 
-# If this list is NOT empty, searches will be restricted to these handles.
-# Example: HANDLES = ["@TwitterDev", "@OpenAI"]
-HANDLES = []
+# Get keywords and handles
+KEYWORDS, HANDLES = get_keywords_and_handles()
 
 # Dictionary to track seen tweets per keyword
 # We'll store a combined "seen_key" => text + author + handle + time to avoid duplicates.
@@ -38,14 +46,46 @@ def setup_driver(headless=False):
     return driver
 
 def twitter_login(driver, username, password):
-    """Open Twitter login page and wait for manual login."""
-    driver.get("https://twitter.com/i/flow/login")
-    print("Please log in manually. Waiting for 30 seconds...")
-    time.sleep(30)  # Wait for manual login
-    if "home" in driver.current_url:
-        print("Login successful!")
-    else:
-        print("Login may have failed. Current URL:", driver.current_url)
+    """Open Twitter and wait for manual login."""
+    try:
+        print("🌐 Opening Twitter login page...")
+        driver.get("https://twitter.com/i/flow/login")
+        
+        print("🔐 Please login to Twitter manually in the browser window...")
+        print("⏳ Waiting for you to complete login...")
+        print("   (The scraper will continue once you're logged in)")
+        
+        # Wait indefinitely until user manually logs in
+        while True:
+            try:
+                current_url = driver.current_url
+                
+                # Check if we're on home page or logged in
+                if ("home" in current_url or 
+                    "twitter.com" in current_url and "login" not in current_url or
+                    driver.find_elements(By.CSS_SELECTOR, '[data-testid="SideNav_AccountSwitcher_Button"]')):
+                    print("✅ Login detected! Continuing with scraping...")
+                    return True
+                    
+                # Check for any error messages
+                error_elements = driver.find_elements(By.CSS_SELECTOR, '[data-testid="error"]')
+                if error_elements:
+                    print("❌ Login error detected. Please try again.")
+                    print("   Refreshing page...")
+                    driver.refresh()
+                    time.sleep(2)
+                
+                # Wait a bit before checking again
+                time.sleep(2)
+                
+            except Exception as e:
+                print(f"⚠️  Checking login status... ({e})")
+                time.sleep(2)
+                continue
+                
+    except Exception as e:
+        print(f"❌ Error during login setup: {e}")
+        return False
 
 def build_search_url(keyword, handle=None):
     """
@@ -184,14 +224,56 @@ def append_tweets_to_file(tweets, keyword, handle=None, file_name="tweets_output
         for line in lines:
             f.write(line + "\n")  # extra blank line for spacing
 
-def main():
-    driver = setup_driver(headless=False)
-    try:
-        twitter_login(driver, TWITTER_USERNAME, TWITTER_PASSWORD)
+def get_unique_filename(keywords, handles):
+    """
+    Generate a unique filename based on keywords and timestamp.
+    """
+    import hashlib
+    import time
+    
+    # Create a unique identifier from keywords and handles
+    content = f"{keywords}_{handles}_{time.time()}"
+    hash_id = hashlib.md5(content.encode()).hexdigest()[:8]
+    
+    # Clean keywords for filename
+    clean_keywords = "_".join([k.replace(" ", "_").replace("/", "_") for k in keywords])
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    return f"tweets_output_{clean_keywords}_{timestamp}_{hash_id}.md"
 
-        while True:
-            keyword = random.choice(KEYWORDS)
-            print(f"Searching for keyword: {keyword}")
+# Global driver instance to reuse across requests
+driver_instance = None
+
+def get_or_create_driver():
+    """Get existing driver or create new one if none exists."""
+    global driver_instance
+    
+    if driver_instance is None:
+        print("🚀 Creating new browser instance...")
+        driver_instance = setup_driver(headless=False)
+        
+        # Login once when creating the driver
+        print("🔐 Logging into Twitter...")
+        twitter_login(driver_instance, "", "")  # Manual login
+        
+    return driver_instance
+
+def main():
+    if not KEYWORDS:
+        print("❌ No keywords provided")
+        return
+        
+    # Generate unique filename for this run
+    unique_filename = get_unique_filename(KEYWORDS, HANDLES)
+    print(f"📁 Using output file: {unique_filename}")
+    
+    try:
+        # Get or create driver (reuses existing browser if available)
+        driver = get_or_create_driver()
+
+        # Process each keyword
+        for keyword in KEYWORDS:
+            print(f"🔍 Searching for keyword: {keyword}")
 
             if HANDLES:
                 for h in HANDLES:
@@ -199,25 +281,34 @@ def main():
                     new_tweets = search_and_scrape_tweets(driver, keyword, handle=h, max_scroll_attempts=10)
                     if new_tweets:
                         print(f"  -> Found {len(new_tweets)} new tweets for handle {h}")
-                        append_tweets_to_file(new_tweets, keyword, handle=h)
+                        append_tweets_to_file(new_tweets, keyword, handle=h, file_name=unique_filename)
                     else:
                         print(f"  -> No new tweets found for '{keyword}' in handle {h}")
             else:
                 new_tweets = search_and_scrape_tweets(driver, keyword, handle=None, max_scroll_attempts=10)
                 if new_tweets:
-                    print(f"Collected {len(new_tweets)} new tweets for '{keyword}' (global)")
-                    append_tweets_to_file(new_tweets, keyword)
+                    print(f"✅ Collected {len(new_tweets)} new tweets for '{keyword}' (global)")
+                    append_tweets_to_file(new_tweets, keyword, file_name=unique_filename)
                 else:
-                    print(f"No new tweets found for '{keyword}' (global).")
-
-            sleep_sec = random.randint(10, 60)
-            print(f"Waiting {sleep_sec} seconds before next search...\n")
-            time.sleep(sleep_sec)
+                    print(f"❌ No new tweets found for '{keyword}' (global).")
 
     except KeyboardInterrupt:
         print("Script interrupted by user.")
-    finally:
-        driver.quit()
+        if driver_instance:
+            print("🔄 Keeping browser open for future requests...")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        # Don't quit driver on error, keep it for retry
+
+def cleanup():
+    """Clean up the global driver instance."""
+    global driver_instance
+    if driver_instance:
+        print("🔄 Closing browser...")
+        driver_instance.quit()
+        driver_instance = None
 
 if __name__ == "__main__":
+    import atexit
+    atexit.register(cleanup)  # Register cleanup function
     main()
