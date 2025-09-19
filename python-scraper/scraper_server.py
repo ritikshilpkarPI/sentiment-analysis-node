@@ -43,9 +43,31 @@ def setup_driver(headless=True):
     chrome_options.add_argument("--remote-debugging-port=9222")
     chrome_options.add_argument("--disable-setuid-sandbox")
     chrome_options.add_argument("--disable-software-rasterizer")
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--disable-logging")
+    chrome_options.add_argument("--disable-default-apps")
+    chrome_options.add_argument("--disable-sync")
+    chrome_options.add_argument("--disable-translate")
+    chrome_options.add_argument("--hide-scrollbars")
+    chrome_options.add_argument("--mute-audio")
+    chrome_options.add_argument("--no-first-run")
+    chrome_options.add_argument("--disable-background-networking")
+    chrome_options.add_argument("--disable-background-timer-throttling")
+    chrome_options.add_argument("--disable-renderer-backgrounding")
+    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+    chrome_options.add_argument("--disable-client-side-phishing-detection")
+    chrome_options.add_argument("--disable-crash-reporter")
+    chrome_options.add_argument("--disable-oopr-debug-crash-dump")
+    chrome_options.add_argument("--no-crash-upload")
+    chrome_options.add_argument("--disable-gpu-sandbox")
+    chrome_options.add_argument("--disable-software-rasterizer")
+    chrome_options.add_argument("--disable-background-timer-throttling")
+    chrome_options.add_argument("--disable-renderer-backgrounding")
+    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+    chrome_options.add_argument("--disable-ipc-flooding-protection")
     
-    # Use chromium instead of chrome for GCP
-    chrome_options.binary_location = "/usr/bin/chromium-browser"
+    # Use Google Chrome for GCP
+    chrome_options.binary_location = "/usr/bin/google-chrome-stable"
     
     if not headless:
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
@@ -87,7 +109,7 @@ def setup_driver(headless=True):
         return driver
     except Exception as e:
         print(f"❌ Error setting up driver: {e}")
-        print("💡 Try installing Chromium manually: sudo apt install chromium-browser chromium-chromedriver")
+        print("💡 Try installing Chrome manually: sudo apt install google-chrome-stable")
         return None
 
 def twitter_login(driver):
