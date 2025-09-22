@@ -43,13 +43,37 @@ app.use((req, res, next) => {
 
 // CORS configuration
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'production' 
-        ? [process.env.FRONTEND_URL, process.env.ALLOWED_ORIGINS?.split(',')].filter(Boolean).flat()
-        : true,
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        
+        const allowedOrigins = [
+            'https://tweet-sentiments-client.netlify.app',
+            'https://34.56.157.230:8443',
+            'http://localhost:3000',
+            'http://localhost:8080',
+            'http://localhost:9000'
+        ];
+        
+        // Add environment-based origins
+        if (process.env.FRONTEND_URL) {
+            allowedOrigins.push(process.env.FRONTEND_URL);
+        }
+        if (process.env.ALLOWED_ORIGINS) {
+            allowedOrigins.push(...process.env.ALLOWED_ORIGINS.split(','));
+        }
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log('CORS blocked origin:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
     optionsSuccessStatus: 200,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 };
 
 // Middleware
