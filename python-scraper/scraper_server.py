@@ -581,6 +581,21 @@ def handle_client(client_socket, address):
         data = client_socket.recv(4096).decode('utf-8')
         if not data:
             return
+        
+        # Handle HTTP-style health check requests
+        if data.startswith('GET /health'):
+            health_response = {
+                'status': 'OK',
+                'timestamp': datetime.now().isoformat(),
+                'browser_ready': driver_instance is not None,
+                'logged_in': driver_instance is not None,
+                'server_running': is_running,
+                'version': '1.0.0'
+            }
+            http_response = f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(json.dumps(health_response))}\r\n\r\n{json.dumps(health_response)}"
+            client_socket.send(http_response.encode('utf-8'))
+            return
+        
         try:
             request = json.loads(data)
         except json.JSONDecodeError:
@@ -593,8 +608,16 @@ def handle_client(client_socket, address):
             handles = request.get('handles', [])
             result = process_scraping_request(keywords, handles)
             response = json.dumps(result)
-        elif request.get('action') == 'status':
-            response = json.dumps({'success': True, 'status': 'running', 'browser_ready': driver_instance is not None})
+        elif request.get('action') == 'status' or request.get('action') == 'health':
+            health_data = {
+                'success': True, 
+                'status': 'running', 
+                'browser_ready': driver_instance is not None,
+                'logged_in': driver_instance is not None,
+                'timestamp': datetime.now().isoformat(),
+                'uptime': time.time() - start_time if 'start_time' in globals() else 0
+            }
+            response = json.dumps(health_data)
         else:
             response = json.dumps({'success': False, 'error': 'Unknown action'})
         client_socket.send(response.encode('utf-8'))
@@ -611,7 +634,8 @@ def handle_client(client_socket, address):
 
 
 def start_server(port=9999, headless=True):
-    global server_socket, is_running, driver_instance
+    global server_socket, is_running, driver_instance, start_time
+    start_time = time.time()
     try:
         print("🚀 Setting up browser...")
         driver_instance = setup_driver(headless=headless)

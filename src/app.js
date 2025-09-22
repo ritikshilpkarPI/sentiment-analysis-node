@@ -6,6 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const xml2js = require('xml2js');
+const https = require('https');
+const http = require('http');
 const { Team, Keyword, Tweet, Topic, Sentiment, Result, Company, News } = require('./models');
 const DbService = require('./services/dbService');
 
@@ -22,10 +24,104 @@ const RESULTS_OUTPUT_FILE = path.join(__dirname, '..', 'sentiment_results.md');
 const TOPIC_OUTPUT_FILE = path.join(__dirname, '..', 'topic.md');
 const RESULTS_OUTPUT_FILE_JSON = path.join(__dirname, '..', 'results.json');
 
+// Security middleware
+app.use((req, res, next) => {
+    // Security headers
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';");
+    
+    // HTTPS redirect in production
+    if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') {
+        return res.redirect(`https://${req.header('host')}${req.url}`);
+    }
+    
+    next();
+});
+
+// CORS configuration
+const corsOptions = {
+    origin: process.env.NODE_ENV === 'production' 
+        ? [process.env.FRONTEND_URL, process.env.ALLOWED_ORIGINS?.split(',')].filter(Boolean).flat()
+        : true,
+    credentials: true,
+    optionsSuccessStatus: 200,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+};
+
 // Middleware
-app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(cors(corsOptions));
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+
+// Health Check Route - Should be first
+app.get('/health', async (req, res) => {
+    const healthCheck = {
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        environment: process.env.NODE_ENV || 'development',
+        version: require('../package.json').version,
+        port: PORT,
+        services: {
+            database: 'OK',
+            gemini_api: 'OK',
+            scraper: 'OK'
+        },
+        system: {
+            memory: process.memoryUsage(),
+            platform: process.platform,
+            nodeVersion: process.version
+        }
+    };
+
+    try {
+        // Test database connection
+        const { sequelize } = require('./models');
+        await sequelize.authenticate();
+        healthCheck.services.database = 'OK';
+    } catch (error) {
+        healthCheck.services.database = 'ERROR';
+        healthCheck.status = 'DEGRADED';
+    }
+
+    // Test if tweets processing is active
+    healthCheck.services.tweet_processing = isProcessingTweets ? 'ACTIVE' : 'IDLE';
+    
+    // Test scraper server connection
+    try {
+        const scraperResponse = await axios.get('http://localhost:9999/health', { timeout: 2000 });
+        healthCheck.services.scraper = 'OK';
+    } catch (error) {
+        healthCheck.services.scraper = 'ERROR';
+    }
+
+    const statusCode = healthCheck.status === 'OK' ? 200 : 503;
+    res.status(statusCode).json(healthCheck);
+});
+
+// Readiness probe for Kubernetes/Docker
+app.get('/ready', async (req, res) => {
+    try {
+        const { sequelize } = require('./models');
+        await sequelize.authenticate();
+        res.status(200).json({ status: 'ready', timestamp: new Date().toISOString() });
+    } catch (error) {
+        res.status(503).json({ status: 'not ready', error: error.message });
+    }
+});
+
+// Liveness probe
+app.get('/alive', (req, res) => {
+    res.status(200).json({ 
+        status: 'alive', 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
 
 // Routes
 app.use('/api/results', require('./routes/resultsRoutes'));
@@ -545,32 +641,111 @@ async function continuousAnalysis() {
     }
 }
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-    console.log('PROCESS_TWEETS environment variable:', process.env.PROCESS_TWEETS);
-    
-    if (process.env.PROCESS_TWEETS === 'true') {
-        // Start continuous analysis loop
-        continuousAnalysis().catch((err) => {
-            // ERROR Error in continuousAnalysis
-            process.exit(1);
-        });
+// SSL Certificate configuration
+function getSSLOptions() {
+    const sslDir = process.env.SSL_CERT_DIR || path.join(__dirname, '..', 'ssl');
+    const keyPath = path.join(sslDir, 'private.key');
+    const certPath = path.join(sslDir, 'certificate.crt');
+    const caPath = path.join(sslDir, 'ca_bundle.crt');
+
+    if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+        const options = {
+            key: fs.readFileSync(keyPath),
+            cert: fs.readFileSync(certPath)
+        };
+
+        // Add CA bundle if available
+        if (fs.existsSync(caPath)) {
+            options.ca = fs.readFileSync(caPath);
+        }
+
+        return options;
     }
-});
+    return null;
+}
+
+// Start server with HTTPS support
+function startServer() {
+    const sslOptions = getSSLOptions();
+    const HTTPS_PORT = process.env.HTTPS_PORT || 443;
+    
+    if (sslOptions && process.env.NODE_ENV === 'production') {
+        // Start HTTPS server
+        const httpsServer = https.createServer(sslOptions, app);
+        httpsServer.listen(HTTPS_PORT, () => {
+            console.log(`🔒 HTTPS Server is running on port ${HTTPS_PORT}`);
+            console.log(`🔒 Secure access: https://localhost:${HTTPS_PORT}`);
+        });
+
+        // Start HTTP server for redirects
+        const httpApp = express();
+        httpApp.use((req, res) => {
+            res.redirect(301, `https://${req.headers.host}${req.url}`);
+        });
+        
+        const httpServer = http.createServer(httpApp);
+        httpServer.listen(PORT, () => {
+            console.log(`🔄 HTTP Server running on port ${PORT} (redirecting to HTTPS)`);
+        });
+
+        return { httpsServer, httpServer };
+    } else {
+        // Start HTTP server only
+        const httpServer = http.createServer(app);
+        httpServer.listen(PORT, () => {
+            console.log(`🌐 HTTP Server is running on port ${PORT}`);
+            console.log(`🌐 Access: http://localhost:${PORT}`);
+            if (process.env.NODE_ENV === 'production') {
+                console.log('⚠️  WARNING: Running in production without HTTPS certificates!');
+            }
+        });
+
+        return { httpServer };
+    }
+}
+
+// Initialize server
+const servers = startServer();
+
+console.log('PROCESS_TWEETS environment variable:', process.env.PROCESS_TWEETS);
+
+if (process.env.PROCESS_TWEETS === 'true') {
+    // Start continuous analysis loop
+    continuousAnalysis().catch((err) => {
+        // ERROR Error in continuousAnalysis
+        process.exit(1);
+    });
+}
 
 // Handle graceful shutdown
-process.on('SIGTERM', async () => {
-    console.log('SIGTERM received. Closing database connection...');
-    await DbService.close();
-    process.exit(0);
-});
+async function gracefulShutdown(signal) {
+    console.log(`${signal} received. Starting graceful shutdown...`);
+    
+    try {
+        // Close servers
+        if (servers.httpsServer) {
+            servers.httpsServer.close();
+            console.log('HTTPS server closed.');
+        }
+        if (servers.httpServer) {
+            servers.httpServer.close();
+            console.log('HTTP server closed.');
+        }
+        
+        // Close database connection
+        await DbService.close();
+        console.log('Database connection closed.');
+        
+        console.log('Graceful shutdown completed.');
+        process.exit(0);
+    } catch (error) {
+        console.error('Error during graceful shutdown:', error);
+        process.exit(1);
+    }
+}
 
-process.on('SIGINT', async () => {
-    console.log('SIGINT received. Closing database connection...');
-    await DbService.close();
-    process.exit(0);
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

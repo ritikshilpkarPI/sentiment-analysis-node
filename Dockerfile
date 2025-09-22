@@ -44,8 +44,20 @@ COPY . .
 RUN python3 -m venv /app/venv
 RUN /app/venv/bin/pip install -r requirements.txt
 
-# Expose ports
-EXPOSE 9000 9999
+# Create SSL directory for certificates
+RUN mkdir -p /app/ssl
+
+# Create non-root user for security
+RUN useradd -m -u 1001 appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Expose ports (HTTP, HTTPS, Python scraper)
+EXPOSE 8080 443 9999
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
 
 # Start both services
 CMD ["sh", "-c", "npm start & python3 python-scraper/scraper_server.py 9999 & wait"]
