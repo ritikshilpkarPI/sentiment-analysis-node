@@ -33,8 +33,10 @@ app.use((req, res, next) => {
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';");
     
-    // HTTPS redirect in production
-    if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') {
+    // HTTPS redirect in production (only for HTTP requests)
+    if (process.env.NODE_ENV === 'production' && 
+        req.header('x-forwarded-proto') !== 'https' && 
+        !req.secure) {
         return res.redirect(`https://${req.header('host')}${req.url}`);
     }
     
