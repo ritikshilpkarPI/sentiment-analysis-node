@@ -18,8 +18,11 @@ services:
       - X_API_BEARER_TOKEN=${X_API_BEARER_TOKEN}
       - GROK_API_KEY=${GROK_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TWITTER_USERNAME=${TWITTER_USERNAME}
+      - TWITTER_PASSWORD=${TWITTER_PASSWORD}
     volumes:
       - ./python-scraper/output:/app/python-scraper/output
+      - ./ssl:/app/ssl
     restart: unless-stopped
     depends_on:
       - postgres
