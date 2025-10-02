@@ -40,3 +40,22 @@ Farmers' unity in CM Mohan Yadav's hometown Ujjain is fruitful.
 MP Farmers | कुसुम-सी परियोजना के अंतर्गत 12 प्रोजेक्ट्स को लेकर बानी बात! CM Dr. Mohan Yadav #MadhyaPradesh #mpfarmers #kusumcproject @CMMadhyaPradesh @DrMohanYadav51 @PradhumanGwl @KrishnaGaurBJP
 CM Mohan Yadav's hometown Ujjain is fruitful.
 Criticism of people of color involved in politics and political memes.
+Criticism of Indian media focusing on trivial aspects of a cricket match instead of real issues like corruption.
+Development and progress of Julana, with mentions of local leaders and the BJP party.
+Economic self-reliance as true freedom for women in Bihar, praising the NDA government.
+Criticism of refugees, accusations of "love jihad" and "land jihad," and fear-mongering about their potential threat.
+Praising an actor (Raghav Juyal)
+Uttarakhand school controversy involving a Sahir Ludhianvi prayer song, Hindutva groups, accusations of "Muslim appeasement," and questions about Saraswati Vandana and Surya Namaskar.
+Criticism of Sonam Wangchuk, comparing him negatively to Arvind Kejriwal and accusing him of instigating Ladakhis and potentially causing unrest similar to Nepal.
+Criticism of using Hindu festivals to promote a "woke agenda" by @houseofindya, leading to a boycott.
+Prediction of high revenue for Telugu Film Industry (TFI) in 2027 due to planned releases of AA22, SSMB29, and Spirit.
+Outsource the municipality administration to the private sector to transform Indian cities.
+European History.
+Criticism of people who study in Christian schools and then object to religious conversions.
+Babri Masjid demolition and DY Chandrachud's statement on the Ayodhya verdict.
+Crime and violence: Man attacking ex-girlfriend after rejection.
+Indore Nagar Nigam BRTS demolition proposal.
+Criticism of urbanization's negative impact on villages and local infrastructure, citing unsanitary conditions and incompatibility with villagers' lifestyles.
+Criticism of public cleanliness and civic sense in Delhi, particularly regarding leftover garbage in public transport and its negative impact on the impression of foreign visitors.
+Bhopal High Profile Drugs Case: भोपाल ड्रग्स केस; यासीन, शावर समेत 10 आरोपियों के खिलाफ चालान पेश
+Criticism of people celebrating and comparing them to accomplices to murder.

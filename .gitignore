@@ -1,5 +1,15 @@
 /node_modules
 /venv
 /.env
+/.env.development
+/.env.test
+/.env.production
+/.env.local
+/.env.*
+
+// Specific backups and python-scraper .env
+.env.backup
+.env.backup.mongodb
+python-scraper/.env
 /package-lock.json
 /server.js

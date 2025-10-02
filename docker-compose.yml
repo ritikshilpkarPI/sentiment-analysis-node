@@ -6,6 +6,7 @@ services:
     ports:
       - "9000:9000"
       - "9999:9999"
+      - "443:443"
     environment:
       - NODE_ENV=production
       - DB_HOST=${DB_HOST}

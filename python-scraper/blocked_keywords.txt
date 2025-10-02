@@ -1,0 +1,18 @@
+# Blocked Keywords - One keyword per line
+# Keywords listed here will be skipped during processing
+# Add keywords you want to stop processing
+
+abhishek sharma
+cricket_20250913_143737_114b89c5
+cricket_20250922_124057_c9074c49
+cricket_photos_20250915_124936_ceae8c6b
+memes_20250915_125026_b7070a38
+phin_salt_20250913_140122_48765c8c
+surya_kumar_yadav_20250913_140140_8a5d7d79
+virat_kohli_20250913_160852_a169d2ff
+pakistan
+love jihad
+BJP
+bhopal
+indore
+ujjain

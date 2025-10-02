@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backend Connection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Backend Connection Test</h1>
+    
+    <div class="test-section">
+        <h3>1. Test CORS Preflight</h3>
+        <button onclick="testCorsPreflight()">Test CORS Preflight</button>
+        <div id="cors-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. Test API Call</h3>
+        <button onclick="testApiCall()">Test API Call</button>
+        <div id="api-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. Test Health Endpoint</h3>
+        <button onclick="testHealth()">Test Health</button>
+        <div id="health-result"></div>
+    </div>
+
+    <script>
+        const BACKEND_URL = 'https://34.56.157.230:8443';
+        
+        function showResult(elementId, success, message) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<pre>${message}</pre>`;
+            element.parentElement.className = `test-section ${success ? 'success' : 'error'}`;
+        }
+
+        async function testCorsPreflight() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/results/runAnalysis`, {
+                    method: 'OPTIONS',
+                    headers: {
+                        'Origin': window.location.origin,
+                        'Access-Control-Request-Method': 'POST',
+                        'Access-Control-Request-Headers': 'Content-Type'
+                    }
+                });
+                
+                const headers = {};
+                for (let [key, value] of response.headers.entries()) {
+                    headers[key] = value;
+                }
+                
+                showResult('cors-result', true, 
+                    `✅ CORS Preflight Success!\n` +
+                    `Status: ${response.status}\n` +
+                    `Headers:\n${JSON.stringify(headers, null, 2)}`
+                );
+            } catch (error) {
+                showResult('cors-result', false, 
+                    `❌ CORS Preflight Failed!\n` +
+                    `Error: ${error.message}\n` +
+                    `This might be due to SSL certificate issues.`
+                );
+            }
+        }
+
+        async function testApiCall() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/results/runAnalysis`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Origin': window.location.origin
+                    },
+                    body: JSON.stringify({
+                        keywords: ['test'],
+                        handles: []
+                    })
+                });
+                
+                const data = await response.json();
+                
+                showResult('api-result', true, 
+                    `✅ API Call Success!\n` +
+                    `Status: ${response.status}\n` +
+                    `Response:\n${JSON.stringify(data, null, 2)}`
+                );
+            } catch (error) {
+                showResult('api-result', false, 
+                    `❌ API Call Failed!\n` +
+                    `Error: ${error.message}\n` +
+                    `This might be due to SSL certificate issues.`
+                );
+            }
+        }
+
+        async function testHealth() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/health`);
+                const data = await response.json();
+                
+                showResult('health-result', true, 
+                    `✅ Health Check Success!\n` +
+                    `Status: ${response.status}\n` +
+                    `Response:\n${JSON.stringify(data, null, 2)}`
+                );
+            } catch (error) {
+                showResult('health-result', false, 
+                    `❌ Health Check Failed!\n` +
+                    `Error: ${error.message}\n` +
+                    `This might be due to SSL certificate issues.`
+                );
+            }
+        }
+    </script>
+</body>
+</html>

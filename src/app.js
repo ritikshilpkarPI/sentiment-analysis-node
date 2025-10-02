@@ -15,11 +15,20 @@ const app = express();
 const PORT = process.env.PORT || 9000;
 
 // API Configuration
-const API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyAus6FjDg-O-Y-lTzZ8zag9pS8HJ_IfnE0";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+// Log API key status
+if (GEMINI_API_KEY) {
+    console.log(`[API] Gemini API key loaded: ${GEMINI_API_KEY}`);
+} else {
+    console.log(`[API] ❌ GEMINI_API_KEY not found in environment variables`);
+}
 
 // File paths
 const LAST_TWEET_COUNT_FILE = path.join(__dirname, '..', 'last_tweet_count.txt');
-const TWEETS_INPUT_FILE = path.join(__dirname, '..', 'tweets_output.md');
+const TWEETS_INPUT_FILE = path.join(__dirname, '..', 'tweets_output.md'); // Old single input file (deprecated)
+const TWEETS_INPUT_DIR = path.join(__dirname, '..', 'python-scraper', 'output'); // Directory for raw scraper output
 const RESULTS_OUTPUT_FILE = path.join(__dirname, '..', 'sentiment_results.md');
 const TOPIC_OUTPUT_FILE = path.join(__dirname, '..', 'topic.md');
 const RESULTS_OUTPUT_FILE_JSON = path.join(__dirname, '..', 'results.json');
@@ -53,7 +62,7 @@ const corsOptions = {
             'https://tweet-sentiments-client.netlify.app',
             'https://34.56.157.230:8443',
             'http://localhost:3000',
-            'http://localhost:8080',
+            'http://localhost:8081',
             'http://localhost:9000'
         ];
         
@@ -154,6 +163,7 @@ app.use('/api/results', require('./routes/resultsRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/companies', require('./routes/companyRoutes'));
 app.use('/api/teams', require('./routes/teamRoutes'));
+app.use('/api/geo-sentiment', require('./routes/geoSentimentRoutes'));
 
 // Route to get all results from JSON file
 app.get('/results', (req, res) => {
@@ -182,27 +192,72 @@ DbService.initialize()
 
 let isProcessingTweets = false;
 
-// Helper function to get last processed tweet count
-function getLastTweetCount() {
-    if (fs.existsSync(LAST_TWEET_COUNT_FILE)) {
+// Helper function to get last processed tweet count (per keyword) - OLD SYSTEM
+function getLastTweetCount(keyword = null) {
+    const countFile = keyword ? `last_tweet_count_${keyword}.txt` : LAST_TWEET_COUNT_FILE;
+    if (fs.existsSync(countFile)) {
         try {
-            const data = fs.readFileSync(LAST_TWEET_COUNT_FILE, 'utf-8').trim();
+            const data = fs.readFileSync(countFile, 'utf-8').trim();
             if (/^\d+$/.test(data)) {
-                console.log(`[DEBUG] last_tweet_count read from disk: ${data}`);
+                console.log(`[DEBUG] last_tweet_count read from disk for ${keyword || 'global'}: ${data}`);
                 return parseInt(data, 10);
             }
         } catch (err) {
-            console.log(`[DEBUG] Could not read last_tweet_count.txt: ${err}`);
+            console.log(`[DEBUG] Could not read ${countFile}: ${err}`);
         }
     }
-    console.log('[DEBUG] No valid last tweet count found. Starting from 0.');
+    console.log(`[DEBUG] No valid last tweet count found for ${keyword || 'global'}. Starting from 0.`);
     return 0;
 }
 
-// Helper function to set last processed tweet count
-function setLastTweetCount(count) {
-    console.log(`[DEBUG] Setting last tweet count to: ${count}`);
-    fs.writeFileSync(LAST_TWEET_COUNT_FILE, String(count), 'utf-8');
+// Helper function to set last processed tweet count (per keyword) - OLD SYSTEM
+function setLastTweetCount(count, keyword = null) {
+    const countFile = keyword ? `last_tweet_count_${keyword}.txt` : LAST_TWEET_COUNT_FILE;
+    console.log(`[DEBUG] Setting last tweet count to: ${count} for ${keyword || 'global'}`);
+    fs.writeFileSync(countFile, String(count), 'utf-8');
+}
+
+// Helper function to add delays between API calls
+async function addApiDelay(ms = 2000, reason = 'API call') {
+    console.log(`[DELAY] Waiting ${ms}ms before ${reason}...`);
+    await new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Helper function to get processed tweet IDs (per keyword) - NEW SYSTEM
+function getProcessedTweetIds(keyword = null) {
+    const idsFile = keyword ? `processed_tweet_ids_${keyword}.json` : 'processed_tweet_ids.json';
+    if (fs.existsSync(idsFile)) {
+        try {
+            const data = fs.readFileSync(idsFile, 'utf-8');
+            const ids = JSON.parse(data);
+            console.log(`[DEBUG] Loaded ${ids.length} processed tweet IDs for ${keyword || 'global'}`);
+            return new Set(ids);
+        } catch (err) {
+            console.log(`[DEBUG] Could not read ${idsFile}: ${err}`);
+        }
+    }
+    console.log(`[DEBUG] No processed tweet IDs found for ${keyword || 'global'}. Starting fresh.`);
+    return new Set();
+}
+
+// Helper function to save processed tweet IDs (per keyword)
+function saveProcessedTweetIds(tweetIds, keyword = null) {
+    const idsFile = keyword ? `processed_tweet_ids_${keyword}.json` : 'processed_tweet_ids.json';
+    const idsArray = Array.from(tweetIds);
+    console.log(`[DEBUG] Saving ${idsArray.length} processed tweet IDs for ${keyword || 'global'}`);
+    fs.writeFileSync(idsFile, JSON.stringify(idsArray, null, 2), 'utf-8');
+}
+
+// Helper function to generate tweet ID from content
+function generateTweetId(tweetContent, author, timestamp) {
+    // Create a unique ID based on content, author, and timestamp
+    const content = typeof tweetContent === 'string' ? tweetContent : tweetContent.content;
+    const tweetAuthor = typeof tweetContent === 'object' ? tweetContent.author : author;
+    const tweetTimestamp = typeof tweetContent === 'object' ? tweetContent.timestamp : timestamp;
+    
+    // Use first 100 chars of content + author + timestamp for ID
+    const idString = `${content.substring(0, 100)}_${tweetAuthor}_${tweetTimestamp}`;
+    return require('crypto').createHash('md5').update(idString).digest('hex');
 }
 
 // Helper function to read tweets from file
@@ -213,7 +268,7 @@ function readTweetsFromFile(filePath) {
     console.log(`[DEBUG] Reading tweets from: ${filePath}`);
     const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
     const tweets = [];
-    let currentTweet = { content: '', keyword: '', media: { images: [], videos: [] } };
+    let currentTweet = { content: '', keyword: '', author: 'Unknown', timestamp: '', media: { images: [], videos: [] } };
     let inTweet = false;
     let inTextSection = false;
 
@@ -231,7 +286,7 @@ function readTweetsFromFile(filePath) {
             }
             
             // Start new tweet
-            currentTweet = { content: '', keyword: '', media: { images: [], videos: [] } };
+            currentTweet = { content: '', keyword: '', author: 'Unknown', timestamp: '', media: { images: [], videos: [] } };
             inTweet = true;
             inTextSection = false;
             continue;
@@ -241,10 +296,12 @@ function readTweetsFromFile(filePath) {
         
         // Handle different fields
         if (trimmed.startsWith('**Author:**')) {
-            // Skip author for now, we'll use it later if needed
+            // Extract author name
+            currentTweet.author = trimmed.replace('**Author:**', '').trim();
             continue;
         } else if (trimmed.startsWith('**Time:**')) {
-            // Skip time for now
+            // Extract timestamp
+            currentTweet.timestamp = trimmed.replace('**Time:**', '').trim();
             continue;
         } else if (trimmed.startsWith('**Text:**')) {
             // Start text section
@@ -472,8 +529,235 @@ function appendResultsToJson(results) {
     }
 }
 
-// Process tweets and store results (both file and DB)
-async function processTweets(tweetsToProcess = null) {
+// Process new tweets for a specific keyword
+async function processNewTweets(newTweets, keyword) {
+    // Get default team and company
+    const defaultTeam = await Team.findOne();
+    const defaultCompany = await Company.findOne();
+
+    if (!defaultTeam || !defaultCompany) {
+        console.log('No default team or company found in the database');
+        return;
+    }
+
+    let results = [];
+    const batchSize = 5;
+    const delayBetweenBatches = 60000; // 60 seconds
+    const delayBetweenCalls = 5000; // 5 seconds
+
+    // Process tweets in batches
+    for (let i = 0; i < newTweets.length; i += batchSize) {
+        const batch = newTweets.slice(i, i + batchSize);
+        const batchNumber = Math.floor(i / batchSize) + 1;
+        const totalBatches = Math.ceil(newTweets.length / batchSize);
+        
+        console.log(`[BATCH] Processing batch ${batchNumber}/${totalBatches} (${batch.length} tweets) for keyword: ${keyword}`);
+        
+        for (const tweetData of batch) {
+        const tweet = typeof tweetData === 'string' ? tweetData : tweetData.content;
+        const media = typeof tweetData === 'object' ? tweetData.media : { images: [], videos: [] };
+        const author = typeof tweetData === 'object' ? tweetData.author : 'Unknown';
+        
+        // Enhanced analysis with Grok validation
+        const GeminiService = require('./services/geminiService');
+        
+        // Add delay between API calls (except for first tweet in first batch)
+        const tweetIndex = i + batch.indexOf(tweetData);
+        if (tweetIndex > 0) {
+            await addApiDelay(delayBetweenCalls, 'next API call');
+        }
+        
+        const enhancedAnalysis = await GeminiService.analyzeSentimentWithGrokValidation(tweet);
+        
+        if (!enhancedAnalysis.finalSentiment) {
+            console.log(`[DEBUG] Error processing tweet: ${tweet}`);
+            continue;
+        }
+
+        // Analyze media content if present with Grok validation
+        let mediaAnalysisResult = null;
+        if (media && (media.images.length > 0 || media.videos.length > 0)) {
+            await addApiDelay(delayBetweenCalls, 'media analysis');
+            mediaAnalysisResult = await GeminiService.analyzeMediaContentWithGrokValidation(tweet, media);
+        }
+
+        // Fetch and validate news with Grok
+        await addApiDelay(delayBetweenCalls, 'news validation');
+        const newsValidation = await GeminiService.fetchAndValidateNewsWithGrok(enhancedAnalysis.finalTopic, tweet);
+
+        // Geo-sentiment analysis (NEW)
+        let geoAnalysisResult = null;
+        try {
+            const GeoSentimentService = require('./services/geoSentimentService');
+            const geoSentimentService = new GeoSentimentService();
+            
+            console.log(`[GEO] Processing geo-sentiment analysis for tweet: ${tweet.substring(0, 50)}...`);
+            
+            geoAnalysisResult = await geoSentimentService.processTweet({
+                text: tweet,
+                author: author,
+                timestamp: new Date(),
+                location: '' // Let Gemini AI determine location from tweet content intelligently
+            });
+            
+            if (geoAnalysisResult) {
+                console.log(`[GEO] Analysis complete - District: ${geoAnalysisResult.district}, Sentiment: ${geoAnalysisResult.sentiment}, Threat: ${geoAnalysisResult.threatLevel}`);
+            } else {
+                console.log(`[GEO] No geo-analysis result (likely no district identified)`);
+            }
+        } catch (geoError) {
+            console.error(`[GEO] Error in geo-sentiment analysis:`, geoError.message);
+            // Continue processing even if geo-analysis fails
+        }
+
+        // Map sentiment to database format (consider geo-sentiment override)
+        const validSentiments = ['POSITIVE', 'NEGATIVE', 'NEUTRAL', 'SARCASTIC', 'RELIGIOUS', 'FUNNY', 'PROVOCATIVE'];
+        let finalSentiment = enhancedAnalysis.finalSentiment.toUpperCase();
+        
+        // Override sentiment if geo-analysis detected anti-national content
+        if (geoAnalysisResult && geoAnalysisResult.sentiment === 'anti_national') {
+            finalSentiment = 'NEGATIVE'; // Map anti_national to NEGATIVE for database compatibility
+            console.log(`[GEO] Overriding sentiment to NEGATIVE due to anti-national detection`);
+        }
+        
+        const mappedSentiment = validSentiments.includes(finalSentiment) 
+            ? finalSentiment 
+            : 'NEUTRAL';
+
+        // Create or find topic
+        const [topicRecord] = await Topic.findOrCreate({
+            where: { name: enhancedAnalysis.finalTopic },
+            defaults: { description: `Topic: ${enhancedAnalysis.finalTopic}` }
+        });
+
+        // Create or find sentiment
+        const [sentimentRecord] = await Sentiment.findOrCreate({
+            where: { label: mappedSentiment },
+            defaults: { 
+                score: 0, 
+                confidence: 0.5,
+                label: mappedSentiment
+            }
+        });
+
+        // Create tweet with enhanced analysis including geo-sentiment data
+        const tweetRecord = await Tweet.create({
+            tweetId: `tweet_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            content: tweet,
+            author: author,
+            keyword: keyword,
+            mediaImages: media.images || [],
+            mediaVideos: media.videos || [],
+            mediaAnalysis: mediaAnalysisResult?.finalAnalysis || null,
+            mediaRelevance: mediaAnalysisResult?.finalRelevance || null,
+            mediaDescription: mediaAnalysisResult?.finalDescription || null,
+            grokAnalysis: enhancedAnalysis.grok,
+            crossValidation: enhancedAnalysis.crossValidation,
+            analysisConfidence: enhancedAnalysis.confidence,
+            consensusResult: enhancedAnalysis.consensus,
+            newsValidation: newsValidation,
+            // NEW: Geo-sentiment fields
+            geoAnalysis: geoAnalysisResult ? JSON.stringify(geoAnalysisResult) : null,
+            district: geoAnalysisResult?.district || null,
+            threatLevel: geoAnalysisResult?.threatLevel || null,
+            isAntiNational: geoAnalysisResult?.sentiment === 'anti_national' || false,
+            createdAt: new Date(),
+            topicId: topicRecord.id,
+            sentimentId: sentimentRecord.id
+        });
+
+        // Create result with proper UUIDs
+        const resultRecord = await Result.create({
+            tweetId: tweetRecord.id,
+            teamId: defaultTeam.id,
+            companyId: defaultCompany.id
+        });
+
+        // Create validated news records and associate them with the result
+        if (enhancedAnalysis.finalTopic !== 'Unknown' && newsValidation.topMatch) {
+            const newsArticles = newsValidation.validatedArticles;
+            if (newsArticles && newsArticles.length > 0) {
+                const newsRecord = await News.create({
+                    title: newsArticles[0].title,
+                    content: newsArticles[0].description || '',
+                    url: newsArticles[0].link,
+                    source: newsArticles[0].source,
+                    publishedAt: new Date()
+                });
+
+                // Associate news with result
+                await resultRecord.addNews(newsRecord);
+            }
+        }
+
+        results.push([tweet, mappedSentiment, enhancedAnalysis.finalTopic, []]);
+        }
+        
+        // Delay between batches (except for the last batch)
+        if (i + batchSize < newTweets.length) {
+            console.log(`[BATCH] Batch ${batchNumber} completed. Waiting ${delayBetweenBatches/1000} seconds before next batch...`);
+            await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
+        }
+    }
+
+    console.log(`Tweets processed and stored successfully for keyword: ${keyword}`);
+}
+
+// Process tweets for a specific keyword
+async function processTweetsForKeyword(keyword) {
+    if (isProcessingTweets) {
+        console.log('Tweet processing already in progress');
+        return;
+    }
+    
+    try {
+        isProcessingTweets = true;
+        console.log(`Starting tweet processing for keyword: ${keyword}`);
+        
+        const keywordFile = path.join(TWEETS_INPUT_DIR, `tweets_output_${keyword}.md`);
+        
+        if (!fs.existsSync(keywordFile)) {
+            console.log(`No tweets file found for keyword ${keyword}: ${keywordFile}`);
+            return;
+        }
+
+        // Get processed tweet IDs to avoid duplicates
+        const processedIds = getProcessedTweetIds(keyword);
+        const allTweets = readTweetsFromFile(keywordFile); // Pass the full file path
+        
+        // Filter out already processed tweets
+        const newTweets = [];
+        const newProcessedIds = new Set(processedIds);
+        
+        for (const tweet of allTweets) {
+            const tweetId = generateTweetId(tweet, tweet.author, tweet.timestamp);
+            
+            if (!processedIds.has(tweetId)) {
+                newTweets.push(tweet);
+                newProcessedIds.add(tweetId);
+            }
+        }
+
+        if (newTweets.length > 0) {
+            console.log(`[DEBUG] Found ${newTweets.length} new tweets for keyword: ${keyword} (${allTweets.length - newTweets.length} duplicates skipped)`);
+            
+            // Process the new tweets
+            await processNewTweets(newTweets, keyword);
+            
+            // Save updated processed IDs
+            saveProcessedTweetIds(newProcessedIds, keyword);
+        } else {
+            console.log(`[DEBUG] No new tweets for keyword ${keyword}. All ${allTweets.length} tweets already processed.`);
+        }
+    } catch (error) {
+        console.error(`Error processing tweets for keyword ${keyword}:`, error);
+    } finally {
+        isProcessingTweets = false;
+    }
+}
+
+// This function is now deprecated as we process tweets per keyword file. We will keep it for now but it will not be called.
+async function processTweets(tweetsToProcess = null, requestedKeywords = null) {
     if (isProcessingTweets) {
         console.log('Tweet processing already in progress');
         return;
@@ -481,32 +765,37 @@ async function processTweets(tweetsToProcess = null) {
     try {
         isProcessingTweets = true;
         console.log('Starting tweet processing...');
-        
+
         let newTweets;
-        
+
         if (tweetsToProcess) {
             // Process specific tweets passed as parameter
             newTweets = tweetsToProcess;
             console.log(`[DEBUG] Processing ${newTweets.length} specific tweets`);
         } else {
-            // Process tweets from file (original behavior)
-            if (!fs.existsSync(TWEETS_INPUT_FILE)) {
-                console.log('No tweets file found at:', TWEETS_INPUT_FILE);
-                return;
-            }
+            // This block is for legacy single-file processing and is now deprecated.
+            // The primary processing mechanism is via monitorKeywordFiles for per-keyword files.
+            console.log('[DEBUG] Skipping old single-file based tweet processing. Use monitorKeywordFiles for continuous scraping.');
+            return; // Exit if no specific tweets are passed
+        }
 
-            // Get last processed count and read all tweets
-            let lastCount = getLastTweetCount();
-            const allTweets = readTweetsFromFile(TWEETS_INPUT_FILE);
-            const total = allTweets.length;
+        // Filter tweets by requested keywords if provided
+        if (requestedKeywords && requestedKeywords.length > 0) {
+            console.log(`[DEBUG] Filtering tweets by keywords: ${requestedKeywords.join(', ')}`);
+            const originalCount = newTweets.length;
 
-            if (total > lastCount) {
-                newTweets = allTweets.slice(lastCount);
-                console.log(`[DEBUG] Found ${newTweets.length} new tweets`);
-            } else {
-                console.log(`[DEBUG] No new tweets. ${total} total, ${lastCount} already processed.`);
-                return;
-            }
+            newTweets = newTweets.filter(tweetData => {
+                const tweet = typeof tweetData === 'string' ? tweetData : tweetData.content;
+                const keyword = typeof tweetData === 'object' ? tweetData.keyword : '';
+
+                // Check if tweet content or keyword matches any requested keyword
+                return requestedKeywords.some(reqKeyword =>
+                    tweet.toLowerCase().includes(reqKeyword.toLowerCase()) ||
+                    keyword.toLowerCase().includes(reqKeyword.toLowerCase())
+                );
+            });
+
+            console.log(`[DEBUG] Filtered from ${originalCount} to ${newTweets.length} tweets`);
         }
 
         if (newTweets && newTweets.length > 0) {
@@ -523,13 +812,19 @@ async function processTweets(tweetsToProcess = null) {
 
             for (const tweetData of newTweets) {
                 const tweet = typeof tweetData === 'string' ? tweetData : tweetData.content;
-                const keyword = typeof tweetData === 'object' ? tweetData.keyword : '';
+                const tweetKeyword = typeof tweetData === 'object' ? tweetData.keyword : '';
                 const media = typeof tweetData === 'object' ? tweetData.media : { images: [], videos: [] };
-                
+                const author = typeof tweetData === 'object' ? tweetData.author : 'Unknown';
+
+                // Use requested keywords if available, otherwise use tweet's individual keyword
+                const keywordToStore = requestedKeywords && requestedKeywords.length > 0
+                    ? requestedKeywords.join(', ')
+                    : tweetKeyword;
+
                 // Enhanced analysis with Grok validation
                 const GeminiService = require('./services/geminiService');
                 const enhancedAnalysis = await GeminiService.analyzeSentimentWithGrokValidation(tweet);
-                
+
                 if (!enhancedAnalysis.finalSentiment) {
                     console.log(`[DEBUG] Error processing tweet: ${tweet}`);
                     continue;
@@ -541,13 +836,13 @@ async function processTweets(tweetsToProcess = null) {
                     console.log(`[SCRAPER] Analyzing media content for tweet: ${media.images.length} images, ${media.videos.length} videos`);
                     mediaAnalysisResult = await GeminiService.analyzeMediaContentWithGrokValidation(tweet, media);
                 }
-                
+
                 // Fetch and validate news with Grok
                 const newsValidation = await GeminiService.fetchAndValidateNewsWithGrok(enhancedAnalysis.finalTopic, tweet);
 
                 // Ensure sentiment is in valid format before database operations
                 const validSentiment = mapSentimentToValidEnum(enhancedAnalysis.finalSentiment);
-                results.push([tweet, validSentiment, enhancedAnalysis.finalTopic, newsValidation, keyword, media, mediaAnalysisResult]);
+                results.push([tweet, validSentiment, enhancedAnalysis.finalTopic, newsValidation, keywordToStore, media, mediaAnalysisResult]);
 
                 try {
                     // Save to database
@@ -560,8 +855,8 @@ async function processTweets(tweetsToProcess = null) {
                     // Create or find sentiment with valid enum value
                     const [sentimentRecord] = await Sentiment.findOrCreate({
                         where: { label: validSentiment },
-                        defaults: { 
-                            score: 0, 
+                        defaults: {
+                            score: 0,
                             confidence: 0.5,
                             label: validSentiment
                         }
@@ -571,8 +866,8 @@ async function processTweets(tweetsToProcess = null) {
                     const tweetRecord = await Tweet.create({
                         tweetId: `tweet_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                         content: tweet,
-                        author: 'Unknown',
-                        keyword: keyword,
+                        author: author,
+                        keyword: keywordToStore,
                         mediaImages: media.images || [],
                         mediaVideos: media.videos || [],
                         mediaAnalysis: mediaAnalysisResult?.finalAnalysis || null,
@@ -607,7 +902,7 @@ async function processTweets(tweetsToProcess = null) {
                         }
                     }
                 } catch (dbError) {
-                    // ERROR Database operation failed
+                    console.error('[DB] Error saving tweet to database:', dbError);
                     continue;
                 }
             }
@@ -632,16 +927,13 @@ async function processTweets(tweetsToProcess = null) {
                 appendResultsToJson(results);
             }
 
-            // Update last processed count
-            lastCount = total;
-            setLastTweetCount(lastCount);
         } else {
-            console.log(`[DEBUG] No new tweets. ${total} total, ${lastCount} already processed.`);
+            console.log(`[DEBUG] No new tweets found or after filtering.`);
         }
 
         console.log('Tweets processed and stored successfully (both file and DB)');
     } catch (error) {
-        // Error processing tweets
+        console.error('Error processing tweets:', error);
     } finally {
         isProcessingTweets = false;
     }
@@ -733,15 +1025,15 @@ function startServer() {
 // Initialize server
 const servers = startServer();
 
-console.log('PROCESS_TWEETS environment variable:', process.env.PROCESS_TWEETS);
-
-if (process.env.PROCESS_TWEETS === 'true') {
-    // Start continuous analysis loop
-    continuousAnalysis().catch((err) => {
+    console.log('PROCESS_TWEETS environment variable:', process.env.PROCESS_TWEETS);
+    
+    if (process.env.PROCESS_TWEETS === 'true') {
+        // Start continuous analysis loop
+        continuousAnalysis().catch((err) => {
         // ERROR Error in continuousAnalysis
-        process.exit(1);
-    });
-}
+            process.exit(1);
+        });
+    }
 
 // Handle graceful shutdown
 async function gracefulShutdown(signal) {
@@ -759,11 +1051,11 @@ async function gracefulShutdown(signal) {
         }
         
         // Close database connection
-        await DbService.close();
+    await DbService.close();
         console.log('Database connection closed.');
-        
+
         console.log('Graceful shutdown completed.');
-        process.exit(0);
+    process.exit(0);
     } catch (error) {
         console.error('Error during graceful shutdown:', error);
         process.exit(1);
@@ -777,7 +1069,58 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 app.use((err, req, res, next) => {
     // Unhandled error
     res.status(500).json({ error: 'Something went wrong!' });
-});
+}); 
+
+// Monitor all keyword files for new tweets (runs every 30 seconds)
+async function monitorKeywordFiles() {
+    console.log('[MONITOR] Starting keyword file monitoring...');
+
+    // Get list of all keyword files from python-scraper/output directory
+    const scraperOutputDir = TWEETS_INPUT_DIR;
+    if (!fs.existsSync(scraperOutputDir)) {
+        console.log('[MONITOR] Python scraper output directory not found:', scraperOutputDir);
+        return;
+    }
+
+    // Read blocked keywords
+    const blockedKeywords = new Set();
+    const blocklistFile = path.join(__dirname, '..', 'python-scraper', 'blocked_keywords.txt');
+    if (fs.existsSync(blocklistFile)) {
+        const blocklistContent = fs.readFileSync(blocklistFile, 'utf-8');
+        blocklistContent.split('\n').forEach(line => {
+            const keyword = line.trim();
+            if (keyword && !keyword.startsWith('#')) {
+                blockedKeywords.add(keyword);
+            }
+        });
+        console.log(`[MONITOR] Blocked keywords: ${Array.from(blockedKeywords).join(', ')}`);
+    }
+
+    const files = fs.readdirSync(scraperOutputDir).filter(file => file.startsWith('tweets_output_') && file.endsWith('.md'));
+    console.log(`[MONITOR] Found ${files.length} keyword files in ${scraperOutputDir}:`, files);
+
+    for (const file of files) {
+        // Extract keyword from filename
+        const keyword = file.replace('tweets_output_', '').replace('.md', '');
+
+        // Skip blocked keywords
+        if (blockedKeywords.has(keyword)) {
+            console.log(`[MONITOR] Skipping blocked keyword: "${keyword}"`);
+            continue;
+        }
+
+        console.log(`[MONITOR] Processing keyword: "${keyword}"`);
+
+        try {
+            await processTweetsForKeyword(keyword);
+        } catch (error) {
+            console.error(`[MONITOR] Error processing keyword ${keyword}:`, error);
+        }
+    }
+}
+
+// Start monitoring every 30 seconds
+setInterval(monitorKeywordFiles, 30000);
 
 // Export functions for use in other modules
-module.exports = { readTweetsFromFile, processTweets }; 
+module.exports = { readTweetsFromFile, processTweets, processTweetsForKeyword }; 

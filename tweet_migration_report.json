@@ -1,0 +1,9 @@
+{
+  "timestamp": "2025-09-29T13:14:30.045Z",
+  "migrationStats": {
+    "tweets": 32101,
+    "errors": 0
+  },
+  "totalMigrated": 32101,
+  "successRate": "100.00"
+}

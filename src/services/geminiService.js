@@ -1,10 +1,20 @@
 const axios = require('axios');
-const { API_ENDPOINT } = require('../config/constants');
 const fs = require('fs');
 const path = require('path');
 const xml2js = require('xml2js');
 const stringSimilarity = require('string-similarity');
 const GrokService = require('./grokService');
+
+// API Configuration
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+// Log API key status
+if (GEMINI_API_KEY) {
+    console.log(`[GEMINI] API key loaded: ${GEMINI_API_KEY}`);
+} else {
+    console.log(`[GEMINI] ❌ GEMINI_API_KEY not found in environment variables`);
+}
 
 class GeminiService {
     static async sleep(ms) {
@@ -27,6 +37,9 @@ class GeminiService {
 
                 return response.data.candidates[0].content.parts[0].text.trim();
             } catch (error) {
+                console.log(`[GEMINI] API Error: ${error.response?.status} - ${error.response?.statusText}`);
+                console.log(`[GEMINI] Error details:`, error.response?.data);
+                
                 if (error.response?.status === 429) {
                     console.log(`Rate limit hit. Retrying in ${delay}ms...`);
                     await this.sleep(delay);
@@ -37,6 +50,7 @@ class GeminiService {
                         await this.sleep(60000); // Wait 60 seconds before final attempt
                     }
                 } else {
+                    console.log(`[GEMINI] Non-rate-limit error, throwing...`);
                     throw error;
                 }
             }
@@ -116,28 +130,11 @@ class GeminiService {
 
     static async analyzeSentimentWithGrokValidation(tweetText) {
         try {
-            // Get Gemini analysis
+            // Get Gemini analysis only (Grok disabled)
             const geminiResult = await this.analyzeSentiment(tweetText);
             
-            // Get Grok analysis
-            const grokResult = await GrokService.analyzeSentiment(tweetText);
+            console.log('[GEMINI] Using Gemini-only analysis (Grok disabled)');
             
-            // Cross-validate both analyses
-            const crossValidation = await GrokService.crossValidateWithGemini(tweetText, geminiResult, grokResult);
-            
-            return {
-                gemini: geminiResult,
-                grok: grokResult,
-                crossValidation: crossValidation,
-                finalSentiment: crossValidation.finalSentiment,
-                finalTopic: crossValidation.finalTopic,
-                confidence: crossValidation.confidenceLevel,
-                consensus: crossValidation.consensus
-            };
-        } catch (error) {
-            console.error('Error in enhanced sentiment analysis:', error.message);
-            // Fallback to Gemini only
-            const geminiResult = await this.analyzeSentiment(tweetText);
             return {
                 gemini: geminiResult,
                 grok: null,
@@ -147,6 +144,9 @@ class GeminiService {
                 confidence: 'Medium',
                 consensus: 'Gemini Only'
             };
+        } catch (error) {
+            console.error('Error in enhanced sentiment analysis:', error.message);
+            throw error;
         }
     }
 
@@ -186,37 +186,21 @@ class GeminiService {
                 };
             }
 
-            // Validate each article with Grok
-            const validatedArticles = [];
-            for (const article of newsArticles.slice(0, 3)) { // Limit to top 3 for validation
-                try {
-                    const validation = await GrokService.validateNews(article.title, '', tweetText);
-                    validatedArticles.push({
-                        ...article,
-                        validation: validation,
-                        relevance: validation.relevance,
-                        matchScore: validation.matchScore,
-                        isValid: validation.validation === 'Valid'
-                    });
-                } catch (error) {
-                    console.error('[GEMINI] Error validating news article:', error.message);
-                    validatedArticles.push({
-                        ...article,
-                        validation: null,
-                        relevance: 'Unknown',
-                        matchScore: 0,
-                        isValid: false
-                    });
-                }
-            }
-
-            // Sort by match score
-            validatedArticles.sort((a, b) => b.matchScore - a.matchScore);
+            // Skip Grok validation (disabled)
+            console.log('[GEMINI] Using Gemini-only news fetching (Grok disabled)');
+            
+            const validatedArticles = newsArticles.slice(0, 3).map(article => ({
+                ...article,
+                validation: null,
+                relevance: 'Unknown',
+                matchScore: 0.5, // Default score
+                isValid: true
+            }));
 
             return {
                 articles: newsArticles,
                 validatedArticles: validatedArticles,
-                summary: `Found ${newsArticles.length} articles, validated ${validatedArticles.length} with Grok`,
+                summary: `Found ${newsArticles.length} articles (Grok validation disabled)`,
                 topMatch: validatedArticles[0] || null
             };
 
@@ -401,6 +385,7 @@ Respond in the following format:
 
         } catch (error) {
             console.error('[GEMINI] Error analyzing media content:', error.message);
+            console.error('[GEMINI] Full error details:', error);
             return {
                 mediaAnalysis: null,
                 mediaRelevance: 'error',
@@ -411,24 +396,11 @@ Respond in the following format:
 
     static async analyzeMediaContentWithGrokValidation(tweetText, mediaItems) {
         try {
-            // Get Gemini analysis
+            // Get Gemini analysis only (Grok disabled)
             const geminiResult = await this.analyzeMediaContent(tweetText, mediaItems);
             
-            // Get Grok analysis
-            const grokResult = await GrokService.analyzeMediaContent(tweetText, mediaItems);
+            console.log('[GEMINI] Using Gemini-only media analysis (Grok disabled)');
             
-            return {
-                gemini: geminiResult,
-                grok: grokResult,
-                finalAnalysis: geminiResult.mediaAnalysis || grokResult.mediaAnalysis,
-                finalRelevance: geminiResult.mediaRelevance || grokResult.mediaRelevance,
-                finalDescription: geminiResult.mediaDescription || grokResult.mediaDescription,
-                confidence: grokResult.confidence || 'Medium'
-            };
-        } catch (error) {
-            console.error('[GEMINI] Error in enhanced media analysis:', error.message);
-            // Fallback to Gemini only
-            const geminiResult = await this.analyzeMediaContent(tweetText, mediaItems);
             return {
                 gemini: geminiResult,
                 grok: null,
@@ -436,6 +408,17 @@ Respond in the following format:
                 finalRelevance: geminiResult.mediaRelevance,
                 finalDescription: geminiResult.mediaDescription,
                 confidence: 'Medium'
+            };
+        } catch (error) {
+            console.error('[GEMINI] Error in enhanced media analysis:', error.message);
+            console.error('[GEMINI] Full error details:', error);
+            return {
+                gemini: null,
+                grok: null,
+                finalAnalysis: null,
+                finalRelevance: 'error',
+                finalDescription: 'Error analyzing media content',
+                confidence: 'Low'
             };
         }
     }

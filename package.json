@@ -5,8 +5,10 @@
     "main": "src/app.js",
     "scripts": {
         "start": "node src/app.js",
-        "dev": "nodemon src/app.js",
-        "test:grok": "node test_grok_integration.js"
+        "dev": "NODE_ENV=development nodemon src/app.js",
+        "dev:test": "NODE_ENV=development node test-geo-sentiment-dev.js",
+        "test:grok": "node test_grok_integration.js",
+        "test:geo": "node test-geo-sentiment-dev.js"
     },
     "keywords": [],
     "author": "",

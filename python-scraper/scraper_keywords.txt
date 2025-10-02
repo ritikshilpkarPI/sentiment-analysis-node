@@ -1,0 +1,17 @@
+# Python Scraper Configuration
+# Keywords listed here will be actively scraped
+# Remove keywords to stop scraping them
+# Add new keywords to start scraping them
+
+# Currently active keywords:
+# BJP
+bhopal
+indore
+ujjain
+nation
+bharat
+india
+mulk
+bhopal view
+indore climate
+dehli metro

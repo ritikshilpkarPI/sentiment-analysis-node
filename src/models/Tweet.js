@@ -89,6 +89,23 @@ const Tweet = sequelize.define('Tweet', {
     newsValidation: {
         type: DataTypes.JSON,
         allowNull: true
+    },
+    // Geo-sentiment analysis fields
+    geoAnalysis: {
+        type: DataTypes.JSON,
+        allowNull: true
+    },
+    district: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    threatLevel: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    isAntiNational: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
     }
 }, {
     timestamps: true

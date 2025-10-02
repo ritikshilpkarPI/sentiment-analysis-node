@@ -12,7 +12,7 @@ const Sentiment = sequelize.define('Sentiment', {
         allowNull: true
     },
     label: {
-        type: DataTypes.ENUM('POSITIVE', 'NEGATIVE', 'NEUTRAL'),
+        type: DataTypes.ENUM('POSITIVE', 'NEGATIVE', 'NEUTRAL', 'SARCASTIC', 'RELIGIOUS', 'FUNNY', 'PROVOCATIVE'),
         allowNull: true
     },
     confidence: {

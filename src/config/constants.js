@@ -1,7 +1,15 @@
 const path = require('path');
 
 // API Configuration
-const API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyBFkfTKliYmv6lsdbrW3Fd7ExSXlxphVAU";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+// Log API key status
+if (GEMINI_API_KEY) {
+    console.log(`[CONSTANTS] Gemini API key loaded: ${GEMINI_API_KEY}`);
+} else {
+    console.log(`[CONSTANTS] ❌ GEMINI_API_KEY not found in environment variables`);
+}
 
 // File paths
 const LAST_TWEET_COUNT_FILE = path.join(__dirname, "../../last_tweet_count.txt");

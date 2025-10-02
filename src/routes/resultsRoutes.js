@@ -156,20 +156,30 @@ router.get('/filtered/json', authenticateToken, async (req, res) => {
 // Get results grouped by topic with tweets and news (filtered by keywords/handles)
 router.post('/grouped', authenticateToken, async (req, res) => {
     try {
-        const { keywords, handles } = req.body;
+        const { keywords, handles, selectedKeywords } = req.body;
 
         console.log('Keywords:', keywords);
+        console.log('Selected Keywords:', selectedKeywords);
         
         
         // Build where clause for filtering
         let whereClause = {};
         
-        // If keywords provided, filter by tweet keyword field first, then content
+        // Combine keywords and selectedKeywords for filtering
+        const allKeywords = [];
         if (keywords && keywords.length > 0) {
+            allKeywords.push(...keywords);
+        }
+        if (selectedKeywords && selectedKeywords.length > 0) {
+            allKeywords.push(...selectedKeywords);
+        }
+        
+        // If any keywords provided, filter by tweet keyword field first, then content
+        if (allKeywords.length > 0) {
             const keywordTerms = [];
             const contentTerms = [];
             
-            keywords.forEach(keyword => {
+            allKeywords.forEach(keyword => {
                 // Add exact keyword match
                 keywordTerms.push({ [Op.iLike]: `%${keyword}%` });
             });
@@ -210,7 +220,7 @@ router.post('/grouped', authenticateToken, async (req, res) => {
             include: [
                 {
                     model: Tweet,
-                    attributes: ['id', 'content', 'author', 'createdAt', 'keyword', 'mediaImages', 'mediaVideos', 'mediaAnalysis', 'mediaRelevance', 'mediaDescription', 'grokAnalysis', 'crossValidation', 'analysisConfidence', 'consensusResult', 'newsValidation'],
+                    attributes: ['id', 'content', 'author', 'createdAt', 'keyword', 'mediaImages', 'mediaVideos', 'mediaAnalysis', 'mediaRelevance', 'mediaDescription', 'grokAnalysis', 'crossValidation', 'analysisConfidence', 'consensusResult', 'newsValidation', 'geoAnalysis', 'district', 'threatLevel', 'isAntiNational'],
                     include: [
                         { 
                             model: Topic,
@@ -264,7 +274,22 @@ router.post('/grouped', authenticateToken, async (req, res) => {
                 news: result.News.map(news => ({
                     title: news.title,
                     link: news.url
-                }))
+                })),
+                // NEW: Geo-sentiment data (concise)
+                geoAnalysis: result.Tweet.geoAnalysis ? (() => {
+                    const geoData = JSON.parse(result.Tweet.geoAnalysis);
+                    return {
+                        district: geoData.district,
+                        sentiment: geoData.sentiment,
+                        threatLevel: geoData.threatLevel,
+                        confidence: geoData.confidence,
+                        source: geoData.source,
+                        requiresAttention: geoData.requiresAttention
+                    };
+                })() : null,
+                district: result.Tweet.district,
+                threatLevel: result.Tweet.threatLevel,
+                isAntiNational: result.Tweet.isAntiNational || false
             };
 
             acc[topicName].push(tweetData);
@@ -651,25 +676,14 @@ function sendScraperRequest(keywords, handles) {
             client.write(JSON.stringify(request));
         });
         
-        // Add timeout to handle cases where response doesn't come
-        const timeout = setTimeout(() => {
-            client.destroy();
-            reject(new Error('Timeout waiting for scraper response'));
-        }, 30000); // 30 second timeout
-        
+        // No timeout for continuous mode - just get confirmation
         client.on('data', (data) => {
-            clearTimeout(timeout);
             try {
                 const response = JSON.parse(data.toString());
-                
-                if (response.success && response.filename) {
-                    // Process the output file
-                    processSpecificFile(response.filename);
-                }
-                
+                console.log('📡 [SCRAPER] Received response:', response.message || 'Continuous scraping started');
                 resolve(response);
             } catch (error) {
-                // SCRAPER_CLIENT Error parsing response
+                console.log('❌ [SCRAPER] Error parsing response:', error.message);
                 reject(error);
             }
             
@@ -677,13 +691,8 @@ function sendScraperRequest(keywords, handles) {
         });
         
         client.on('error', (error) => {
-            clearTimeout(timeout);
-            // SCRAPER_CLIENT Connection error
+            console.log('❌ [SCRAPER] Connection error:', error.message);
             reject(error);
-        });
-        
-        client.on('close', () => {
-            clearTimeout(timeout);
         });
     });
 }
@@ -1025,7 +1034,7 @@ async function processTweetsWithSentiment(tweets, keyword, handle = null) {
                 createdAt: new Date(tweet.created_at),
                 topicId: topicRecord.id,
                 sentimentId: sentimentRecord.id,
-                keyword: keyword,
+                keyword: keyword, // X API already uses the correct keyword
                 mediaImages: tweet.media?.images || [],
                 mediaVideos: tweet.media?.videos || [],
                 mediaAnalysis: mediaAnalysisResult?.finalAnalysis || null,
@@ -1108,7 +1117,7 @@ ${handle ? `**Handle:** ${handle}` : ''}
 }
 
 // Function to process a specific tweets file
-function processSpecificFile(filename) {
+function processSpecificFile(filename, keywords = null) {
     const filePath = path.join(__dirname, '..', '..', 'python-scraper', filename);
     
     if (!fs.existsSync(filePath)) {
@@ -1123,10 +1132,12 @@ function processSpecificFile(filename) {
         const tweets = readTweetsFromFile(filePath);
         
         if (tweets.length > 0) {
-            processTweets(tweets);
+            // Pass keywords for filtering
+            processTweets(tweets, keywords);
         }
     } catch (error) {
         // PROCESS_FILE Error processing file
+        console.log('📁 [PROCESS_FILE] Error processing file:', error.message);
     }
 }
 

@@ -1,0 +1,15 @@
+{
+  "timestamp": "2025-09-29T12:52:26.110Z",
+  "migrationStats": {
+    "tweets": 0,
+    "results": 0,
+    "topics": 0,
+    "sentiments": 0,
+    "users": 0,
+    "teams": 0,
+    "companies": 0,
+    "errors": 63925
+  },
+  "totalMigrated": 0,
+  "successRate": "0.00"
+}
