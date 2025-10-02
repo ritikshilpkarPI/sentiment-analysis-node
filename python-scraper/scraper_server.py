@@ -839,7 +839,7 @@ def process_scraping_request(keywords, handles):
             'keywords': processed_keywords, 
             'skipped_keywords': skipped_keywords,
             'handles': handles,
-            'message': f'Continuous scraping started for {len(processed_keywords)} keywords. {len(skipped_keywords)} keywords skipped.'
+            'message': f'Continuous scraping started for {len(processed_keywords)} keywords.'
         }
     except Exception as e:
         print(f"❌ Error processing scraping request: {e}")
