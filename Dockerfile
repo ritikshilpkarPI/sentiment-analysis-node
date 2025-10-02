@@ -65,6 +65,13 @@ RUN mkdir -p /app/ssl
 # Create non-root user for security
 RUN useradd -m -u 1001 appuser && \
     chown -R appuser:appuser /app
+
+# Create symlinks for Chrome compatibility (as root, before switching to appuser)
+RUN ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome \
+    && ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable \
+    && ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-beta \
+    && ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-dev
+
 USER appuser
 
 # Expose ports (HTTP, HTTPS, Python scraper)
