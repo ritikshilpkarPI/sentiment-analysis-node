@@ -56,6 +56,35 @@ def read_allowed_keywords():
         print("⚠️ No keywords config file found. All keywords will be allowed.")
     return allowed_keywords
 
+def add_keywords_to_file(keywords):
+    """Automatically add keywords to scraper_keywords.txt"""
+    try:
+        # Read existing keywords
+        existing_keywords = read_allowed_keywords()
+        
+        # Add new keywords
+        for keyword in keywords:
+            existing_keywords.add(keyword)
+        
+        # Write back to file
+        with open(KEYWORDS_CONFIG_PATH, 'w', encoding='utf-8') as f:
+            f.write("# Python Scraper Configuration\n")
+            f.write("# Keywords listed here will be actively scraped\n")
+            f.write("# Remove keywords to stop scraping them\n")
+            f.write("# Add new keywords to start scraping them\n\n")
+            
+            if existing_keywords:
+                f.write("# Currently active keywords:\n")
+                for keyword in sorted(existing_keywords):
+                    f.write(f"{keyword}\n")
+            else:
+                f.write("# No active keywords - scraper will be stopped\n")
+        
+        print(f"✅ Automatically added {len(keywords)} keywords to scraper_keywords.txt")
+        
+    except Exception as e:
+        print(f"❌ Error adding keywords to file: {e}")
+
 # Read creds from env (recommended)
 TWITTER_USERNAME = os.environ.get("TWITTER_USERNAME")
 TWITTER_PASSWORD = os.environ.get("TWITTER_PASSWORD")
@@ -780,20 +809,14 @@ def process_scraping_request(keywords, handles):
         print("❌ No browser instance available")
         return None
     try:
-        # Read allowed keywords
-        allowed_keywords = read_allowed_keywords()
+        # Automatically add keywords to scraper_keywords.txt
+        add_keywords_to_file(keywords)
         
         total_tweets = 0
         processed_keywords = []
         skipped_keywords = []
         
         for keyword in keywords:
-            # Check if keyword is allowed
-            if allowed_keywords and keyword not in allowed_keywords:
-                print(f"🚫 Skipping blocked keyword: {keyword}")
-                skipped_keywords.append(keyword)
-                continue
-                
             print(f"🔍 Starting continuous scraping for keyword: {keyword}")
             keyword_filename = f"tweets_output_{keyword}.md"
             print(f"📁 Using per-keyword file: {keyword_filename}")

@@ -82,4 +82,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:9000/health || exit 1
 
 # Start both services
-CMD ["sh", "-c", "npm start & python3 python-scraper/scraper_server.py 9999 & wait"]
+CMD ["npm", "start"]
