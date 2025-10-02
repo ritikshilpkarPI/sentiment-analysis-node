@@ -1076,7 +1076,8 @@ async function monitorKeywordFiles() {
     const scraperOutputDir = TWEETS_INPUT_DIR;
     if (!fs.existsSync(scraperOutputDir)) {
         console.log('[MONITOR] Python scraper output directory not found:', scraperOutputDir);
-        return;
+        console.log('[MONITOR] Creating directory:', scraperOutputDir);
+        fs.mkdirSync(scraperOutputDir, { recursive: true });
     }
 
     // Read blocked keywords
