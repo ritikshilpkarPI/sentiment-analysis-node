@@ -1120,4 +1120,4 @@ async function monitorKeywordFiles() {
 setInterval(monitorKeywordFiles, 30000);
 
 // Export functions for use in other modules
-module.exports = { readTweetsFromFile, processTweets, processTweetsForKeyword }; 
+module.exports = { readTweetsFromFile, processTweetsForKeyword }; 
