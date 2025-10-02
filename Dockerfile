@@ -16,7 +16,20 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     chromium-browser \
     chromium-chromedriver \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install chromedriver for chromium
+RUN CHROMIUM_VERSION=$(chromium-browser --version | cut -d " " -f2 | cut -d "." -f1) \
+    && CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROMIUM_VERSION}") \
+    && wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip" \
+    && unzip /tmp/chromedriver.zip -d /usr/local/bin/ \
+    && chmod +x /usr/local/bin/chromedriver \
+    && rm /tmp/chromedriver.zip
+
+# Create symlinks for compatibility
+RUN ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome \
+    && ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
 
 # Install Node.js
 RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
@@ -29,7 +42,9 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install Node.js dependencies
-RUN npm ci --only=production
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+RUN npm install --omit=dev
 
 # Copy Python requirements
 COPY requirements.txt ./
