@@ -756,8 +756,8 @@ async function processTweetsForKeyword(keyword) {
     }
 }
 
-// This function is now deprecated as we process tweets per keyword file. We will keep it for now but it will not be called.
-async function processTweets(tweetsToProcess = null, requestedKeywords = null) {
+// Legacy processTweets function removed - now using processTweetsForKeyword for per-keyword processing
+async function processTweets_LEGACY_REMOVED(tweetsToProcess = null, requestedKeywords = null) {
     if (isProcessingTweets) {
         console.log('Tweet processing already in progress');
         return;
@@ -765,7 +765,7 @@ async function processTweets(tweetsToProcess = null, requestedKeywords = null) {
     try {
         isProcessingTweets = true;
         console.log('Starting tweet processing...');
-
+        
         let newTweets;
 
         if (tweetsToProcess) {
@@ -799,14 +799,14 @@ async function processTweets(tweetsToProcess = null, requestedKeywords = null) {
         }
 
         if (newTweets && newTweets.length > 0) {
-            // Get default team and company
-            const defaultTeam = await Team.findOne();
-            const defaultCompany = await Company.findOne();
+        // Get default team and company
+        const defaultTeam = await Team.findOne();
+        const defaultCompany = await Company.findOne();
 
-            if (!defaultTeam || !defaultCompany) {
+        if (!defaultTeam || !defaultCompany) {
                 // No default team or company found in the database
-                return;
-            }
+            return;
+        }
 
             let results = [];
 
@@ -855,8 +855,8 @@ async function processTweets(tweetsToProcess = null, requestedKeywords = null) {
                     // Create or find sentiment with valid enum value
                     const [sentimentRecord] = await Sentiment.findOrCreate({
                         where: { label: validSentiment },
-                        defaults: {
-                            score: 0,
+                        defaults: { 
+                            score: 0, 
                             confidence: 0.5,
                             label: validSentiment
                         }
@@ -939,13 +939,13 @@ async function processTweets(tweetsToProcess = null, requestedKeywords = null) {
     }
 }
 
-// Continuous analysis loop
-async function continuousAnalysis() {
+// Legacy continuousAnalysis function removed - now using monitorKeywordFiles for per-keyword processing
+async function continuousAnalysis_LEGACY_REMOVED() {
     console.log('[INFO] Starting continuous analysis loop...');
     
     while (true) {
         try {
-            await processTweets();
+            await processTweets_LEGACY_REMOVED();
             
             // Random sleep between 10-60 seconds
             const sleepTime = Math.floor(Math.random() * (60 - 10 + 1)) + 10;
@@ -1028,11 +1028,8 @@ const servers = startServer();
     console.log('PROCESS_TWEETS environment variable:', process.env.PROCESS_TWEETS);
     
     if (process.env.PROCESS_TWEETS === 'true') {
-        // Start continuous analysis loop
-        continuousAnalysis().catch((err) => {
-        // ERROR Error in continuousAnalysis
-            process.exit(1);
-        });
+        // Start keyword file monitoring for per-keyword processing
+        monitorKeywordFiles();
     }
 
 // Handle graceful shutdown
